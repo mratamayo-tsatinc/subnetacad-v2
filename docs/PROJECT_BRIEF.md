@@ -55,7 +55,7 @@ The implemented Atom sequence is a scaffold from constraints to application:
 3. **Atom 3 — The Space Map:** build subnet IDs for the first and last subnet ranges.
 4. **Atom 4 — The Boundaries:** derive network and broadcast boundaries.
 5. **Atom 5 — Applied Scenarios:** answer narrative problems spanning subnet counts, hosts, borrowed bits, masks, addresses, and subnet membership.
-6. **Atom 6 — VLSM Planning:** arrange LAN and router-link requirements, then allocate each subnet incrementally from the network state created by the preceding correct allocation.
+6. **Atom 6 — VLSM Planning:** arrange LAN and WAN requirements, then allocate each subnet incrementally from the network state created by the preceding correct allocation.
 
 The current activity profile hides Atoms 1–5 and presents Atom 6 only. Their code and configuration remain available for future profiles.
 
@@ -70,7 +70,7 @@ The practice-only Subnet Visualizer supports discovery through six linked panels
 - Fixed shared or locally preserved per-student random question sets in either mode.
 - Configurable question counts and allowed address classes.
 - Configuration-driven curriculum and session defaults that can be manually edited without changing core logic.
-- Atom 6 VLSM volume practice with question pagination, progressive source-subnet state, decimal IPv4 inputs, field-level validation, and a shared router-connection subnet.
+- Atom 6 VLSM volume practice with question pagination, progressive source-subnet state, decimal IPv4 inputs, field-level validation, and a shared WAN source subnet.
 - Optional legacy conversion phases for decimal, binary, IP, mask, and classful CIDR work; disabled in the checked-in configuration.
 - Optional mode-independent timer with warning and critical states.
 - Configurable local persistence for Practice and Exam seeds, answers, scores, locks, and optional deadlines.
@@ -100,11 +100,11 @@ The practice-only Subnet Visualizer supports discovery through six linked panels
 | Legacy phases 1–7 | Disabled |
 | Atoms 1–5 | Disabled and hidden |
 | Atom 6 | 10 VLSM scenarios: 4 foundation, 3 intermediate, 3 advanced |
-| Atom 6 topology | 2 routers → 3 routers → 4 routers; 1–2 LANs per router |
+| Atom 6 requirements | Foundation: 3 LANs + 2 WANs; intermediate: 4 + 3; advanced: 5 + 4 |
 | Atom 6 parent networks | Configured Class C `/24`; randomized first three octets; excludes `192.168` |
 | Strict binary width | Enabled |
 
-Atom 6 awards one point for correct ordering, one for every completed LAN allocation, and one for the shared router-connection allocation. The denominator is generated from each scenario rather than hardcoded in the UI.
+Atom 6 awards one point for correct ordering, one for every completed LAN allocation, and one for the shared WAN allocation stage. The denominator is generated from each scenario rather than hardcoded in the UI.
 
 ## Product principles
 

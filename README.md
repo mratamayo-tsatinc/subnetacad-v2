@@ -33,7 +33,7 @@ Then open `http://localhost:8000`. Opening `index.html` directly with `file://` 
 
 ## Current configuration
 
-The checked-in configuration defaults to a 90-minute exam. Legacy conversion phases 1–7 and Atoms 1–5 are disabled; Atom 6 is the only visible Atom. It provides ten incrementally arranged VLSM planning scenarios using configurable Class C `/24` parent pools, progressing from two to four routers. Practice mode and the ungraded visualizer remain available through pre-login settings.
+The checked-in configuration defaults to Practice mode with the timer disabled and local persistence enabled. Legacy conversion phases 1–7 and Atoms 1–5 are disabled; Atom 6 is the only visible Atom. It provides ten incrementally arranged VLSM planning scenarios using configurable Class C `/24` parent pools, progressing from 3 LANs + 2 WANs to 5 LANs + 4 WANs.
 
 ## Configuration model
 

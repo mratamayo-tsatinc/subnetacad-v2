@@ -63,7 +63,7 @@ Enable a student to learn and demonstrate classful IPv4 subnetting through repro
 | GEN-03A | Curriculum parameters must remain separate from the core application logic. | Implemented | A user can alter enabled content, counts, ranges, CIDR pools, allowed classes, and answer strictness in the configuration section without editing generators, graders, or renderers. |
 | GEN-04 | Random generation must never produce invalid, impossible, or duplicate-heavy assessments. | Partial | Bounds exist, but no automated property-based coverage or duplicate threshold is present. |
 | CURR-01 | The system supports configurable Atoms 1–6 and optional conversion phases 1–7. | Implemented | Enabled content appears, is graded, contributes to totals, and participates in persistence; the current profile exposes Atom 6 only. |
-| CURR-01A | Atom 6 provides incrementally arranged VLSM planning practice. | Implemented | Foundation scenarios use two routers, intermediate scenarios use three, and advanced scenarios use four; every router has at most two LANs and all router links are ordered last as an equivalent group. |
+| CURR-01A | Atom 6 provides incrementally arranged VLSM planning practice. | Implemented | Foundation scenarios use 3 LANs + 2 WANs, intermediate uses 4 + 3, and advanced uses 5 + 4; LANs are ordered by host need and WANs form the final equivalent group. |
 | CURR-02 | The curriculum copy must state that classful addressing is a teaching abstraction. | Planned | An orientation/about surface includes this context without distracting from the activity. |
 
 ### Practice and learning support
