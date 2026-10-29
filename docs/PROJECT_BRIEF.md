@@ -55,6 +55,9 @@ The implemented Atom sequence is a scaffold from constraints to application:
 3. **Atom 3 — The Space Map:** build subnet IDs for the first and last subnet ranges.
 4. **Atom 4 — The Boundaries:** derive network and broadcast boundaries.
 5. **Atom 5 — Applied Scenarios:** answer narrative problems spanning subnet counts, hosts, borrowed bits, masks, addresses, and subnet membership.
+6. **Atom 6 — VLSM Planning:** arrange LAN and router-link requirements, then allocate each subnet incrementally from the network state created by the preceding correct allocation.
+
+The current activity profile hides Atoms 1–5 and presents Atom 6 only. Their code and configuration remain available for future profiles.
 
 The practice-only Subnet Visualizer supports discovery through six linked panels: address/class detection, CIDR bit boundary, mask comparison, subnet permutations, host-range inspection, and classful/classless comparison.
 
@@ -68,7 +71,7 @@ The practice-only Subnet Visualizer supports discovery through six linked panels
 - Email-seeded, reproducible per-student exam questions.
 - Configurable question counts and allowed address classes.
 - Configuration-driven curriculum and session defaults that can be manually edited without changing core logic.
-- Five scored Atom modules with question pagination.
+- Atom 6 VLSM volume practice with question pagination, progressive source-subnet state, decimal IPv4 inputs, field-level validation, and a shared router-connection subnet.
 - Optional legacy conversion phases for decimal, binary, IP, mask, and classful CIDR work; disabled in the checked-in configuration.
 - 90-minute default exam timer with warning and critical states.
 - Exam answer locking, disabled reset, hidden visualizer, and `localStorage` resume.
@@ -83,7 +86,7 @@ The practice-only Subnet Visualizer supports discovery through six linked panels
 - Instructor dashboard, roster management, gradebook sync, or analytics.
 - Multi-device attempt resume.
 - Offline-first installation/service worker.
-- IPv6, VLSM route planning, supernetting, or route aggregation exercises.
+- IPv6, supernetting, or route aggregation exercises.
 - Localization.
 
 ## Current configuration baseline
@@ -94,14 +97,13 @@ The practice-only Subnet Visualizer supports discovery through six linked panels
 | Exam duration | 90 minutes |
 | Practice seed | Fixed by default; random is selectable |
 | Legacy phases 1–7 | Disabled |
-| Atom 1 | 10 questions; Classes A/B/C |
-| Atom 2 | 10 questions; Classes A/B/C |
-| Atom 3 | 2 questions; Classes B/C |
-| Atom 4 | 1 question; Class C |
-| Atom 5 | 50 questions across 10 enabled subtypes |
+| Atoms 1–5 | Disabled and hidden |
+| Atom 6 | 10 VLSM scenarios: 4 foundation, 3 intermediate, 3 advanced |
+| Atom 6 topology | 2 routers → 3 routers → 4 routers; 1–2 LANs per router |
+| Atom 6 parent networks | Configured Class C `/24`; randomized first three octets; excludes `192.168` |
 | Strict binary width | Enabled |
 
-Atom 3 and Atom 4 award multiple points within a question, so the total possible score is data-driven rather than equal to the number of question cards.
+Atom 6 awards one point for correct ordering, one for every completed LAN allocation, and one for the shared router-connection allocation. The denominator is generated from each scenario rather than hardcoded in the UI.
 
 ## Product principles
 

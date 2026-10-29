@@ -1,6 +1,6 @@
 # SubnetAcad v2
 
-SubnetAcad v2 is a pure front-end, browser-based IPv4 subnetting learning and assessment application. It combines a six-panel subnet visualizer with five scored learning modules ("Atoms"), deterministic question generation, practice and timed-exam modes, browser persistence, CSV export, and QR-based result sharing.
+SubnetAcad v2 is a pure front-end, browser-based IPv4 subnetting learning and assessment application. It combines a six-panel subnet visualizer with configurable scored learning modules ("Atoms"), deterministic question generation, practice and timed-exam modes, browser persistence, CSV export, and QR-based result sharing.
 
 The application is intentionally lightweight: `index.html`, `styles.css`, and `script.js` run directly in the browser without a package manager, compilation step, application server, or database. Its behavior is configuration-driven: users can change the dedicated configuration values near the top of `script.js` without altering the core generation, grading, rendering, navigation, or persistence logic.
 
@@ -33,7 +33,7 @@ Then open `http://localhost:8000`. Opening `index.html` directly with `file://` 
 
 ## Current configuration
 
-The checked-in configuration defaults to a 90-minute exam. Legacy conversion phases 1–7 are disabled, while Atoms 1–5 are enabled. Practice mode and the ungraded visualizer remain available through pre-login settings.
+The checked-in configuration defaults to a 90-minute exam. Legacy conversion phases 1–7 and Atoms 1–5 are disabled; Atom 6 is the only visible Atom. It provides ten incrementally arranged VLSM planning scenarios using configurable Class C `/24` parent pools, progressing from two to four routers. Practice mode and the ungraded visualizer remain available through pre-login settings.
 
 ## Configuration model
 

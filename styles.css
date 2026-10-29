@@ -977,6 +977,564 @@ body, html {
     }
 }
 
+/* ============================================================
+   ATOM 6 — VLSM PLANNING
+   Decimal-first, progressive allocation workspace. Bit visualizations
+   are intentionally absent from the input surface.
+   ============================================================ */
+.atom6-app {
+    gap: 18px;
+}
+
+.atom6-q-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+
+.atom6-q-panel > .panel-head > div {
+    flex: 1;
+}
+
+.atom6-q-panel > .panel-head h2,
+.atom6-q-panel > .panel-head p,
+.atom6-stage-head h3,
+.atom6-stage-head p {
+    margin: 0;
+}
+
+.atom6-q-panel > .panel-head p,
+.atom6-stage-head p {
+    margin-top: 4px;
+    color: var(--text-secondary);
+}
+
+.atom6-progress {
+    display: flex;
+    align-items: flex-start;
+    gap: 0;
+    overflow-x: auto;
+    padding: 4px 4px 12px;
+}
+
+.atom6-progress-step {
+    position: relative;
+    display: flex;
+    flex: 1 0 92px;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    color: var(--text-tertiary);
+    text-align: center;
+}
+
+.atom6-progress-step:not(:last-child)::after {
+    content: '';
+    position: absolute;
+    top: 16px;
+    left: calc(50% + 18px);
+    width: calc(100% - 36px);
+    height: 2px;
+    background: var(--border-color);
+}
+
+.atom6-progress-step > span {
+    position: relative;
+    z-index: 1;
+    display: grid;
+    width: 32px;
+    height: 32px;
+    place-items: center;
+    border: 1px solid var(--border-color);
+    border-radius: 50%;
+    background: var(--surface);
+    font-weight: 700;
+}
+
+.atom6-progress-step.active {
+    color: var(--task-accent);
+}
+
+.atom6-progress-step.active > span {
+    border-color: var(--task-accent);
+    background: var(--task-accent-soft);
+}
+
+.atom6-progress-step.done {
+    color: var(--success);
+}
+
+.atom6-progress-step.done > span {
+    border-color: var(--success);
+    background: var(--secondary-light);
+}
+
+.atom6-progress-step.done:not(:last-child)::after {
+    background: var(--success);
+}
+
+.atom6-scenario-board,
+.atom6-stage,
+.atom6-completed-plan,
+.atom6-final-review {
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    background: rgba(15, 23, 42, 0.48);
+    padding: clamp(14px, 2vw, 22px);
+}
+
+.atom6-parent-network {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 16px;
+    padding: 14px 16px;
+    border: 1px solid rgba(59, 130, 246, 0.42);
+    border-radius: 10px;
+    background: var(--locked-soft);
+}
+
+.atom6-parent-network span,
+.atom6-section-label {
+    color: var(--text-secondary);
+    font-size: 0.76rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.atom6-parent-network strong {
+    color: var(--locked);
+    font-family: var(--font-mono);
+    font-size: 1.1rem;
+}
+
+.atom6-router-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 12px;
+}
+
+.atom6-router-card {
+    overflow: hidden;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: var(--surface);
+}
+
+.atom6-router-title {
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border-color);
+    color: var(--task-accent);
+    font-weight: 700;
+}
+
+.atom6-router-card ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.atom6-router-card li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 12px;
+}
+
+.atom6-router-card li + li {
+    border-top: 1px solid var(--border-color);
+}
+
+.atom6-router-card li span {
+    color: var(--text-main);
+}
+
+.atom6-router-card li strong {
+    color: var(--host);
+    font-family: var(--font-mono);
+    font-size: 0.78rem;
+    white-space: nowrap;
+}
+
+.atom6-links {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin-top: 16px;
+}
+
+.atom6-section-label {
+    width: 100%;
+}
+
+.atom6-link-chip {
+    padding: 7px 10px;
+    border: 1px solid rgba(129, 140, 248, 0.4);
+    border-radius: 999px;
+    background: var(--task-accent-soft);
+    color: var(--text-main);
+    font-size: 0.82rem;
+}
+
+.atom6-stage-head {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 16px;
+}
+
+.atom6-stage-head > div {
+    flex: 1;
+}
+
+.atom6-stage-complete {
+    border-color: rgba(16, 185, 129, 0.42);
+    background: rgba(16, 185, 129, 0.06);
+}
+
+.atom6-stage-complete .fa-circle-check {
+    color: var(--success);
+    font-size: 1.45rem;
+}
+
+.atom6-order-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.atom6-order-item {
+    display: grid;
+    grid-template-columns: 38px 1fr auto;
+    align-items: center;
+    gap: 12px;
+    padding: 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 9px;
+    background: var(--surface);
+}
+
+.atom6-order-position {
+    display: grid;
+    width: 32px;
+    height: 32px;
+    place-items: center;
+    border-radius: 50%;
+    background: var(--task-accent-soft);
+    color: var(--task-accent);
+    font-weight: 700;
+}
+
+.atom6-order-item strong,
+.atom6-order-item small {
+    display: block;
+}
+
+.atom6-order-item small {
+    margin-top: 3px;
+    color: var(--text-secondary);
+}
+
+.atom6-order-actions {
+    display: flex;
+    gap: 6px;
+}
+
+.atom6-order-actions button {
+    display: grid;
+    width: 36px;
+    height: 36px;
+    place-items: center;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--surface-hover);
+    color: var(--text-main);
+    cursor: pointer;
+}
+
+.atom6-order-actions button:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.atom6-stage-actions {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-top: 16px;
+}
+
+.atom6-inline-feedback {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.atom6-inline-feedback.incorrect {
+    color: var(--error);
+}
+
+.atom6-block-summary {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 11px 13px;
+    border: 1px solid var(--border-color);
+    border-radius: 9px;
+    background: var(--surface);
+}
+
+.atom6-block-summary > span {
+    color: var(--text-secondary);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+}
+
+.atom6-block-summary strong {
+    color: var(--locked);
+    font-family: var(--font-mono);
+}
+
+.atom6-block-summary small {
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+}
+
+.atom6-parameter-grid {
+    display: grid;
+    grid-template-columns: minmax(160px, 0.45fr) minmax(280px, 1fr);
+    gap: 14px;
+    margin: 16px 0;
+}
+
+.atom6-parameter-grid label {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+    color: var(--text-secondary);
+    font-size: 0.78rem;
+    font-weight: 700;
+    text-transform: uppercase;
+}
+
+.atom6-cidr-input {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    width: fit-content;
+    color: var(--text-main);
+    font-family: var(--font-mono);
+    font-size: 1.05rem;
+}
+
+.atom6-scalar-input,
+.atom6-octet {
+    box-sizing: border-box;
+    height: 40px;
+    border: 1px solid var(--border-color);
+    border-radius: 7px;
+    outline: none;
+    background: var(--editor-bg);
+    color: var(--text-main);
+    font-family: var(--font-mono);
+    font-size: 0.95rem;
+    text-align: center;
+}
+
+.atom6-scalar-input {
+    width: 68px;
+}
+
+.atom6-octet {
+    width: 64px;
+}
+
+.atom6-scalar-input:focus,
+.atom6-octet:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px var(--primary-light);
+}
+
+.atom6-scalar-input.atom6-correct,
+.atom6-octet.atom6-correct {
+    border-color: var(--success);
+    background: rgba(16, 185, 129, 0.1);
+    color: var(--success);
+}
+
+.atom6-scalar-input.atom6-incorrect,
+.atom6-octet.atom6-incorrect {
+    border-color: var(--error);
+    background: rgba(239, 68, 68, 0.08);
+}
+
+.atom6-scalar-input:disabled,
+.atom6-octet:disabled {
+    opacity: 1;
+    cursor: not-allowed;
+}
+
+.atom6-ip-input {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    min-width: max-content;
+}
+
+.atom6-ip-input .dot {
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+    font-weight: 700;
+}
+
+.atom6-address-table th:first-child {
+    width: 180px;
+    color: var(--text-secondary);
+    font-weight: 600;
+    text-align: left;
+}
+
+.atom6-address-table td {
+    min-width: 315px;
+}
+
+.atom6-completed-plan h3 {
+    margin-top: 0;
+}
+
+.atom6-completed-plan td small {
+    display: block;
+    margin-top: 3px;
+    color: var(--text-secondary);
+}
+
+.atom6-pool {
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: rgba(15, 23, 42, 0.4);
+}
+
+.atom6-pool > summary {
+    display: flex;
+    justify-content: space-between;
+    padding: 12px 14px;
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
+.atom6-pool > summary span {
+    display: grid;
+    min-width: 25px;
+    height: 25px;
+    place-items: center;
+    border-radius: 999px;
+    background: var(--surface-hover);
+    color: var(--text-main);
+}
+
+.atom6-pool-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: 8px;
+    padding: 0 12px 12px;
+}
+
+.atom6-pool-grid .atom6-block-summary strong {
+    color: var(--text-main);
+}
+
+.atom6-link-allocation {
+    margin-top: 16px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border-color);
+}
+
+.atom6-link-allocation h4 {
+    margin: 0 0 10px;
+    color: var(--task-accent);
+}
+
+.atom6-final-review {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: center;
+    gap: 14px;
+    border-color: rgba(16, 185, 129, 0.5);
+    background: rgba(16, 185, 129, 0.08);
+}
+
+.atom6-final-review .atom6-pool,
+.atom6-final-review .atom6-reset {
+    grid-column: 1 / -1;
+}
+
+.atom6-complete-icon {
+    display: grid;
+    width: 50px;
+    height: 50px;
+    place-items: center;
+    border-radius: 50%;
+    background: var(--secondary-light);
+    color: var(--success);
+    font-size: 1.4rem;
+}
+
+.atom6-final-review h3,
+.atom6-final-review p {
+    margin: 0;
+}
+
+.atom6-final-review p {
+    margin-top: 4px;
+    color: var(--text-secondary);
+}
+
+@media (max-width: 720px) {
+    .atom6-parameter-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .atom6-stage-actions {
+        align-items: stretch;
+        flex-direction: column;
+    }
+
+    .atom6-stage-actions .primary-btn {
+        width: 100%;
+    }
+}
+
+@media (max-width: 480px) {
+    .atom6-parent-network {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .atom6-order-item {
+        grid-template-columns: 34px 1fr;
+    }
+
+    .atom6-order-actions {
+        grid-column: 2;
+    }
+
+    .atom6-octet {
+        width: 52px;
+    }
+
+    .atom6-ip-input {
+        gap: 3px;
+    }
+}
+
 /* --- 3.5 BINARY / IP CONVERSION QUESTION STYLES --- */
 /* Rendered inside .code-editor (dark panel), so text/inputs use light
    colors consistent with that panel rather than the app's light theme. */
