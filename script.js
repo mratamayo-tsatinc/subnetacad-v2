@@ -240,20 +240,20 @@ let currentUser = "";
 // Settings and Mode Management
 let appSettings = {
     mode: 'practice', // 'practice' or 'exam'
+    persistenceEnabled: true,
+    timerEnabled: false,
     timerMinutes: 120,
     autoShowSample: true, // whether the console panel auto-opens when an exercise has sample output; device-based default set below
-    practiceQuestionMode: 'fixed' // 'fixed' (same set every time — legacy behavior) or 'random' (fresh set each practice session)
+    practiceQuestionMode: 'fixed' // 'fixed' (shared set) or 'random' (a per-student set that remains until deliberately replaced)
 };
 
-// Holds the seed for the current practice session when
-// appSettings.practiceQuestionMode === 'random'. Generated once per login
-// (see loadAllExercises) so the question set stays stable for the
-// duration of that session — switching exercises or reloading the
-// settings modal doesn't reshuffle it — but a fresh login produces a new
-// random set. Reset to null on logout-equivalent state so a later login
-// in random mode is guaranteed to regenerate rather than accidentally
-// reusing a stale value.
+const APP_PREFERENCES_STORAGE_KEY = 'subnetacadAppPreferences';
+
+// Holds the persisted seed for random Practice mode. It is restored before
+// question generation so refreshes and later logins rebuild the exact same
+// scenarios before the saved answers and scores are applied.
 let currentPracticeSeed = null;
+let currentQuestionSeed = null;
 
 // Builds a seed string that's different on every call — timestamp plus a
 // random component, so even two logins in the same millisecond can't
@@ -262,11 +262,47 @@ function generateRandomPracticeSeed() {
     return `practice-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
 }
 
+function loadAppPreferences() {
+    try {
+        const raw = localStorage.getItem(APP_PREFERENCES_STORAGE_KEY);
+        const saved = raw ? JSON.parse(raw) : null;
+        if (saved && ['fixed', 'random'].includes(saved.practiceQuestionMode)) {
+            appSettings.practiceQuestionMode = saved.practiceQuestionMode;
+        }
+        if (saved && typeof saved.persistenceEnabled === 'boolean') appSettings.persistenceEnabled = saved.persistenceEnabled;
+        if (saved && typeof saved.timerEnabled === 'boolean') appSettings.timerEnabled = saved.timerEnabled;
+        if (saved && Number.isInteger(saved.timerMinutes) && saved.timerMinutes >= 1 && saved.timerMinutes <= 999) {
+            appSettings.timerMinutes = saved.timerMinutes;
+        }
+    } catch (err) {
+        console.warn('Could not load Practice preferences:', err);
+    }
+}
+
+function saveAppPreferences() {
+    try {
+        localStorage.setItem(APP_PREFERENCES_STORAGE_KEY, JSON.stringify({
+            practiceQuestionMode: appSettings.practiceQuestionMode,
+            persistenceEnabled: appSettings.persistenceEnabled,
+            timerEnabled: appSettings.timerEnabled,
+            timerMinutes: appSettings.timerMinutes
+        }));
+    } catch (err) {
+        console.warn('Could not save Practice preferences:', err);
+    }
+}
+
 let timerIntervalId = null;
 let timeRemaining = 0; // in seconds
-let examEndTimestamp = null; // epoch ms the exam timer should expire at; persisted per-student so a reload resumes the real deadline instead of granting a fresh timer
+let examEndTimestamp = null; // epoch ms the optional activity timer expires; persisted per student when local progress is enabled
+let sessionTimedOut = false;
+
+function isRetryAllowed() {
+    return appSettings.mode === 'practice' && !sessionTimedOut;
+}
 
 window.onload = async function() {
+    loadAppPreferences();
     // Native HTML5 drag-and-drop (used for line ordering) does not fire on
     // touchscreens. Flag touch devices so CSS can hide the drag handle and
     // reveal the Up/Down buttons and Jump-to dropdown instead.
@@ -530,6 +566,7 @@ async function handleLogin() {
     
     if (user) {
         currentUser = email;
+        sessionTimedOut = false;
         document.getElementById('loginOverlay').style.display = 'none';
         document.getElementById('appContainer').style.display = 'flex';
         document.getElementById('userDisplay').textContent = email;
@@ -538,22 +575,24 @@ async function handleLogin() {
 
         const { session: resumedSession, isExpired } = await loadAllExercises();
 
-        // Start timer if in exam mode — resuming the real deadline (not a
-        // fresh countdown) if this student already has a persisted session.
-        if (appSettings.mode === 'exam') {
+        // Timing is independent of Practice/Exam mode. When enabled, resume
+        // the saved fixed deadline instead of granting a fresh duration.
+        if (appSettings.timerEnabled) {
             if (isExpired) {
                 // Time was already up (or the exam was already completed)
                 // before this login/reload — stay locked, no timer.
                 stopTimer();
                 document.getElementById('timerContainer').style.display = 'none';
                 document.getElementById('actionButton').disabled = true;
-                saveExamSession();
+                saveSessionProgress();
             } else if (resumedSession && typeof resumedSession.examEndTimestamp === 'number') {
                 const remaining = Math.max(0, Math.round((resumedSession.examEndTimestamp - Date.now()) / 1000));
                 startTimer(remaining);
             } else {
                 startTimer();
             }
+        } else {
+            stopTimer();
         }
     } else {
         const errorEl = document.getElementById('loginError');
@@ -1230,32 +1269,27 @@ async function loadAllExercises() {
     list.innerHTML = ""; 
     document.getElementById('loader').style.display = 'block';
 
-    // Exam mode hides the per-bit decimal place-value labels (128, 64, 32,
-    // ...) shown above every bit box across Phase 1, Phase 2's read-only
-    // "given" grid, and the Phase 3/6 octet grids — those numbers hand the
-    // student the exact arithmetic needed to solve the question, which
-    // defeats the point of a timed assessment. Driven by a single
-    // body-level class rather than touching each render function, so it
-    // covers every bit grid uniformly (including ones not yet rendered)
-    // via CSS alone (see .bit-place-value in style.css).
-    document.body.classList.toggle('exam-mode', appSettings.mode === 'exam');
+    // Load a saved session before generating questions. Practice needs this
+    // early pass because its saved random seed determines the scenarios that
+    // must be rebuilt before answers can be restored.
+    let resumedSession = null;
+    if (currentUser) {
+        resumedSession = appSettings.mode === 'exam'
+            ? loadExamSession(currentUser)
+            : loadPracticeSession(currentUser);
+    }
+    if (resumedSession && resumedSession.practiceSeed) {
+        currentPracticeSeed = resumedSession.practiceSeed;
+    }
 
-    // Exam mode: seed question generation with the student's email, so
-    // the exact same numbers/questions reappear on reload (stable across
-    // resumed exam sessions) while differing from student to student.
-    //
-    // Practice mode's seed depends on appSettings.practiceQuestionMode
-    // (set in the Settings modal, before login):
+    // Question seeding is independent of Practice/Exam mode:
     //   - 'fixed'  -> the same constant seed every time, so every student
     //                 practices the identical set (e.g. for walking
     //                 through problems together as a class).
-    //   - 'random' -> a freshly generated seed for this login session, so
-    //                 practice sessions vary session-to-session instead of
-    //                 repeating the same questions forever.
+    //   - 'random' -> a per-student random seed, generated once and then
+    //                 restored locally with that student's Practice progress.
     let seedStr;
-    if (appSettings.mode === 'exam' && currentUser) {
-        seedStr = currentUser;
-    } else if (appSettings.mode === 'practice' && appSettings.practiceQuestionMode === 'random') {
+    if (appSettings.practiceQuestionMode === 'random') {
         if (!currentPracticeSeed) {
             currentPracticeSeed = generateRandomPracticeSeed();
         }
@@ -1263,6 +1297,7 @@ async function loadAllExercises() {
     } else {
         seedStr = 'practice-default-seed';
     }
+    currentQuestionSeed = seedStr;
 
     const questionList = buildConversionQuestions(seedStr);
 
@@ -1355,20 +1390,18 @@ async function loadAllExercises() {
 
     document.getElementById('loader').style.display = 'none';
 
-    // --- Restore any persisted exam-mode progress for this student ---
-    // Keyed by email, so a page reload/reconnect during an exam resumes
-    // exactly where the student left off (locked exercises, scores, line
-    // order) instead of silently wiping their answers and handing them a
-    // brand-new timer.
-    let resumedSession = null;
+    // Restore persisted progress after deterministically rebuilding the saved
+    // question set. Exam and Practice sessions use separate storage keys.
     let isExpired = false;
-    if (appSettings.mode === 'exam' && currentUser) {
-        resumedSession = loadExamSession(currentUser);
-        if (resumedSession) {
-            applySavedExerciseStates(resumedSession);
-            isExpired = !!resumedSession.completed ||
-                (typeof resumedSession.examEndTimestamp === 'number' && Date.now() >= resumedSession.examEndTimestamp);
+    if (resumedSession) {
+        applySavedExerciseStates(resumedSession);
+        if (appSettings.timerEnabled) {
+            if (typeof resumedSession.examEndTimestamp === 'number') {
+                examEndTimestamp = resumedSession.examEndTimestamp;
+            }
+            isExpired = typeof resumedSession.examEndTimestamp === 'number' && Date.now() >= resumedSession.examEndTimestamp;
             if (isExpired) {
+                sessionTimedOut = true;
                 // Lock every exercise, including ones never opened, so a
                 // reload after time's up can't be used to keep answering.
                 for (const file in exerciseData) {
@@ -1389,6 +1422,12 @@ async function loadAllExercises() {
     syncAtom4ViewDOM();
     syncAtom5ViewDOM();
     syncAtom6ViewDOM();
+
+    // Persist the seed immediately and synchronize any independent setting
+    // changes (for example, turning the timer off for an existing session).
+    if (appSettings.persistenceEnabled) {
+        saveSessionProgress();
+    }
 
     // Default landing page after login: the ungraded Subnet Visualizer
     // tool in Practice Mode, so a fresh login drops the student somewhere
@@ -1416,7 +1455,7 @@ async function loadAllExercises() {
     return { session: resumedSession, isExpired };
 }
 
-// Applies a previously-saved exam session (locked state, score, and line
+// Applies a previously-saved session (locked state, score, and line
 // order per exercise) onto the freshly-loaded exerciseData. Must run after
 // exerciseData has been populated (each exercise re-shuffles on every page
 // load, but userOrder is stored as original line indices, so it re-applies
@@ -2094,7 +2133,7 @@ function renderAtom1QuestionHtml(qid, q) {
     // Formula stays visible throughout Practice Mode (so the student only
     // has to click bits and self-check against the live numbers); Exam
     // Mode hides it, same principle as hiding bit place-value labels there.
-    const formulaHtml = (appSettings.mode === 'practice') ? renderAtom1FormulaBox(qid, q, 0) : '';
+    const formulaHtml = renderAtom1FormulaBox(qid, q, 0);
 
     return '<div class="conversion-question atom1-question" data-qid="' + qid + '">' +
                 buildAtom1RequirementCardHtml(q) +
@@ -2352,7 +2391,7 @@ function buildAtom1PanelHtml(qid, ex, index) {
     // Formula stays visible throughout Practice Mode (self-check aid);
     // Exam Mode hides it, same principle as hiding bit place-value labels
     // elsewhere in exam mode.
-    const formulaHtml = (appSettings.mode === 'practice') ? renderAtom1FormulaBox(qid, ex, 0) : '';
+    const formulaHtml = renderAtom1FormulaBox(qid, ex, 0);
 
     return (
         '<section class="panel atom1-q-panel" id="atom1QPanel-' + qid + '" data-qid="' + qid + '">' +
@@ -2415,7 +2454,7 @@ function saveAtom1Progress(qid) {
     if (!ex || ex.locked) return;
     const grid = document.getElementById('atom1BitGrid-' + qid);
     ex.userAnswer = grid ? (grid.dataset.borrowed || '0') : (ex.userAnswer || '');
-    if (appSettings.mode === 'exam') saveExamSession();
+    saveSessionProgress();
 }
 
 // Sets the Verify/Reset/Locked button label + disabled state for one
@@ -2427,7 +2466,7 @@ function setAtom1ButtonState(qid) {
     const btn = document.querySelector('.atom1-verify-btn[data-qid="' + qid + '"]');
     if (!btn || !ex) return;
     if (ex.locked) {
-        if (appSettings.mode === 'practice') {
+        if (isRetryAllowed()) {
             btn.textContent = 'Reset';
             btn.disabled = false;
         } else {
@@ -2512,8 +2551,8 @@ function verifyAtom1Question(qid) {
 
     if (isCorrect) triggerConfetti();
 
+    saveSessionProgress();
     if (appSettings.mode === 'exam') {
-        saveExamSession();
         if (checkIfAllAnswered()) {
             stopTimer();
             setTimeout(() => {
@@ -2526,8 +2565,8 @@ function verifyAtom1Question(qid) {
 // Resets one Atom 1 question — practice mode only, mirroring
 // resetCurrentExercise's exam-mode guard.
 function resetAtom1Question(qid) {
-    if (appSettings.mode === 'exam') {
-        showAlertModal('Reset Not Allowed', 'Reset is not allowed in Exam Mode.');
+    if (!isRetryAllowed()) {
+        showAlertModal('Reset Not Allowed', sessionTimedOut ? 'Reset is not allowed after time expires.' : 'Reset is not allowed in Exam Mode.');
         return;
     }
     const ex = exerciseData[qid];
@@ -2550,6 +2589,7 @@ function resetAtom1Question(qid) {
     setAtom1ButtonState(qid);
     updateAtom1NavScore();
     updateSummaryPanel();
+    saveSessionProgress();
 }
 
 // Aggregates every atom1-q* exercise into a single X/N readout on the
@@ -2606,10 +2646,8 @@ function syncAtom1ViewDOM() {
 // --- Sidebar navigation into the Atom 1 view (Tools → Atoms → Atom 1) ---
 // Mirrors showSubnetVisualizer/showAtomPage's page-switching pattern (hide
 // every other view, clear currentFile since no single exercise is
-// "current" here, close the console drawer), plus keeps the exam timer bar
-// visible here too — unlike the ungraded tools, Atom 1 is scored and
-// counts toward exam completion, so the countdown should stay visible
-// while working through it.
+// "current" here and close the console drawer). The independently enabled
+// activity timer remains visible while working through it.
 function showAtom1Page() {
     document.querySelectorAll('.sidebar li').forEach(l => l.classList.remove('active'));
     const navItem = document.getElementById('nav-atom1');
@@ -2772,7 +2810,7 @@ function saveAtom2Progress(qid) {
     if (!ex || ex.locked) return;
     const grid = document.getElementById('atom2BitGrid-' + qid);
     ex.userAnswer = grid ? (grid.dataset.maskbits || initAtom2MaskBits(ex.networkBits)) : (ex.userAnswer || '');
-    if (appSettings.mode === 'exam') saveExamSession();
+    saveSessionProgress();
 }
 
 // Guards against attaching the delegated verify/reset click listener more
@@ -2892,7 +2930,7 @@ function setAtom2ButtonState(qid) {
     const btn = document.querySelector('.atom2-verify-btn[data-qid="' + qid + '"]');
     if (!btn || !ex) return;
     if (ex.locked) {
-        if (appSettings.mode === 'practice') {
+        if (isRetryAllowed()) {
             btn.textContent = 'Reset';
             btn.disabled = false;
         } else {
@@ -2985,8 +3023,8 @@ function verifyAtom2Question(qid) {
 
     if (isCorrect) triggerConfetti();
 
+    saveSessionProgress();
     if (appSettings.mode === 'exam') {
-        saveExamSession();
         if (checkIfAllAnswered()) {
             stopTimer();
             setTimeout(() => {
@@ -2999,8 +3037,8 @@ function verifyAtom2Question(qid) {
 // Resets one Atom 2 question — practice mode only, mirroring
 // resetAtom1Question's exam-mode guard.
 function resetAtom2Question(qid) {
-    if (appSettings.mode === 'exam') {
-        showAlertModal('Reset Not Allowed', 'Reset is not allowed in Exam Mode.');
+    if (!isRetryAllowed()) {
+        showAlertModal('Reset Not Allowed', sessionTimedOut ? 'Reset is not allowed after time expires.' : 'Reset is not allowed in Exam Mode.');
         return;
     }
     const ex = exerciseData[qid];
@@ -3023,6 +3061,7 @@ function resetAtom2Question(qid) {
     setAtom2ButtonState(qid);
     updateAtom2NavScore();
     updateSummaryPanel();
+    saveSessionProgress();
 }
 
 // Aggregates every atom2-q* exercise into a single X/N readout on the
@@ -3237,12 +3276,8 @@ function buildSubnetIndexInner(bitsArr, options) {
 }
 
 function renderAtom3SubnetIndexInner(qid, rowPos, bitsArr, subnetNum) {
-    const pillTitle = (appSettings.mode === 'practice')
-        ? 'This row builds Subnet ' + subnetNum
-        : '';
-    const footerHtml = (appSettings.mode === 'practice')
-        ? '<div class="idx-viz-label">Target: Subnet ' + subnetNum + '</div>'
-        : '<div class="idx-viz-label">Subnet Index</div>';
+    const pillTitle = 'This row builds Subnet ' + subnetNum;
+    const footerHtml = '<div class="idx-viz-label">Target: Subnet ' + subnetNum + '</div>';
 
     return buildSubnetIndexInner(bitsArr, {
         pillTitle,
@@ -3616,7 +3651,7 @@ function saveAtom3Progress(qid) {
     const ex = exerciseData[qid];
     if (!ex || ex.locked) return;
     ex.userAnswer = collectAtom3Answer(qid);
-    if (appSettings.mode === 'exam') saveExamSession();
+    saveSessionProgress();
 }
 
 // Guards against attaching the delegated verify/reset click listener more
@@ -3827,7 +3862,7 @@ function setAtom3ButtonState(qid) {
     const btn = document.querySelector('.atom3-verify-btn[data-qid="' + qid + '"]');
     if (!btn || !ex) return;
     if (ex.locked) {
-        if (appSettings.mode === 'practice') {
+        if (isRetryAllowed()) {
             btn.textContent = 'Reset';
             btn.disabled = false;
         } else {
@@ -3947,8 +3982,8 @@ function verifyAtom3Question(qid) {
 
     if (allCorrect) triggerConfetti();
 
+    saveSessionProgress();
     if (appSettings.mode === 'exam') {
-        saveExamSession();
         if (checkIfAllAnswered()) {
             stopTimer();
             setTimeout(() => {
@@ -3963,8 +3998,8 @@ function verifyAtom3Question(qid) {
 // grid to 0 borrowed bits also rebuilds the subnet row list from scratch
 // (see updateAtom3Grid), so nothing further needs clearing here.
 function resetAtom3Question(qid) {
-    if (appSettings.mode === 'exam') {
-        showAlertModal('Reset Not Allowed', 'Reset is not allowed in Exam Mode.');
+    if (!isRetryAllowed()) {
+        showAlertModal('Reset Not Allowed', sessionTimedOut ? 'Reset is not allowed after time expires.' : 'Reset is not allowed in Exam Mode.');
         return;
     }
     const ex = exerciseData[qid];
@@ -4000,6 +4035,7 @@ function resetAtom3Question(qid) {
     setAtom3ButtonState(qid);
     updateAtom3NavScore();
     updateSummaryPanel();
+    saveSessionProgress();
 }
 
 // Aggregates every atom3-q* exercise into a single X/N readout on the
@@ -4229,15 +4265,15 @@ function saveAtom4Progress(qid) {
     const ex = exerciseData[qid];
     if (!ex || ex.locked) return;
     ex.userAnswer = collectAtom4Answer(qid);
-    if (appSettings.mode === 'exam') saveExamSession();
+    saveSessionProgress();
 }
 
 function updateAtom4ButtonState(qid) {
     const ex = exerciseData[qid];
     const button = document.querySelector('.atom4-verify-btn[data-qid="' + qid + '"]');
     if (!button || !ex) return;
-    button.textContent = ex.locked ? (appSettings.mode === 'practice' ? 'Reset' : 'Locked') : 'Verify Answer';
-    button.disabled = ex.locked && appSettings.mode !== 'practice';
+    button.textContent = ex.locked ? (isRetryAllowed() ? 'Reset' : 'Locked') : 'Verify Answer';
+    button.disabled = ex.locked && !isRetryAllowed();
 }
 
 function applyAtom4LockedUI(qid, ex) {
@@ -4276,12 +4312,12 @@ function verifyAtom4Question(qid) {
     updateAtom4NavScore();
     updateSummaryPanel();
     if (result.allCorrect) triggerConfetti();
-    if (appSettings.mode === 'exam') saveExamSession();
+    saveSessionProgress();
 }
 
 function resetAtom4Question(qid) {
-    if (appSettings.mode === 'exam') {
-        showAlertModal('Reset Not Allowed', 'Reset is not allowed in Exam Mode.');
+    if (!isRetryAllowed()) {
+        showAlertModal('Reset Not Allowed', sessionTimedOut ? 'Reset is not allowed after time expires.' : 'Reset is not allowed in Exam Mode.');
         return;
     }
     const ex = exerciseData[qid];
@@ -4303,6 +4339,7 @@ function resetAtom4Question(qid) {
     if (badge) badge.textContent = '0/' + ex.answers.length;
     updateAtom4NavScore();
     updateSummaryPanel();
+    saveSessionProgress();
 }
 
 function updateAtom4NavScore() {
@@ -5104,7 +5141,7 @@ function saveAtom5Progress(qid) {
     if (!ex || ex.locked) return;
     const input = document.querySelector('.atom5-answer-input[data-qid="' + qid + '"]');
     ex.userAnswer = input ? input.value : (ex.userAnswer || '');
-    if (appSettings.mode === 'exam') saveExamSession();
+    saveSessionProgress();
 }
 
 // Sets the Verify/Reset/Locked button label + disabled state for one
@@ -5114,7 +5151,7 @@ function setAtom5ButtonState(qid) {
     const btn = document.querySelector('.atom5-verify-btn[data-qid="' + qid + '"]');
     if (!btn || !ex) return;
     if (ex.locked) {
-        if (appSettings.mode === 'practice') {
+        if (isRetryAllowed()) {
             btn.textContent = 'Reset';
             btn.disabled = false;
         } else {
@@ -5200,8 +5237,8 @@ function verifyAtom5Question(qid) {
 
     if (isCorrect) triggerConfetti();
 
+    saveSessionProgress();
     if (appSettings.mode === 'exam') {
-        saveExamSession();
         if (checkIfAllAnswered()) {
             stopTimer();
             setTimeout(() => {
@@ -5214,8 +5251,8 @@ function verifyAtom5Question(qid) {
 // Resets one Atom 5 question — practice mode only, mirroring
 // resetAtom1Question's/etc. exam-mode guard.
 function resetAtom5Question(qid) {
-    if (appSettings.mode === 'exam') {
-        showAlertModal('Reset Not Allowed', 'Reset is not allowed in Exam Mode.');
+    if (!isRetryAllowed()) {
+        showAlertModal('Reset Not Allowed', sessionTimedOut ? 'Reset is not allowed after time expires.' : 'Reset is not allowed in Exam Mode.');
         return;
     }
     const ex = exerciseData[qid];
@@ -5241,6 +5278,7 @@ function resetAtom5Question(qid) {
     setAtom5ButtonState(qid);
     updateAtom5NavScore();
     updateSummaryPanel();
+    saveSessionProgress();
 }
 
 // Aggregates every atom5-q* exercise into a single X/N readout on the
@@ -5593,7 +5631,7 @@ function atom6SaveState(qid) {
     if (!ex) return;
     ex.userAnswer = JSON.stringify(ex.atom6State);
     ex.isPartial = ex.score > 0 && ex.score < ex.answers.length;
-    if (appSettings.mode === 'exam') saveExamSession();
+    saveSessionProgress();
 }
 
 function atom6ItemById(scenario, id) {
@@ -5767,7 +5805,7 @@ function atom6BuildFinalReview(qid, ex) {
     const pool = ex.scenario.solution.wan.poolAfter;
     return '<section class="atom6-final-review"><div class="atom6-complete-icon"><i class="fa-solid fa-trophy"></i></div><div><h3>VLSM Plan Complete</h3><p>The LANs and router connections fit inside ' + ex.scenario.parent.network + '/' + ex.scenario.parent.cidr + '.</p></div>' +
         '<details class="atom6-pool"><summary>Remaining Unallocated Subnets <span>' + pool.length + '</span></summary><div class="atom6-pool-grid">' + pool.slice(0, 16).map(block => atom6BlockSummary(block, 'Unallocated')).join('') + '</div></details>' +
-        (appSettings.mode === 'practice' ? '<button type="button" class="secondary-btn atom6-reset" data-qid="' + qid + '"><i class="fa-solid fa-rotate-left"></i> Reset Scenario</button>' : '') + '</section>';
+        (isRetryAllowed() ? '<button type="button" class="secondary-btn atom6-reset" data-qid="' + qid + '"><i class="fa-solid fa-rotate-left"></i> Reset Scenario</button>' : '') + '</section>';
 }
 
 function buildAtom6PanelHtml(qid, ex, index) {
@@ -5915,7 +5953,7 @@ function atom6CheckWan(qid) {
     atom6SaveState(qid);
     atom6Rerender(qid);
     if (allCorrect && appSettings.mode === 'exam') {
-        saveExamSession();
+        saveTimerProgress();
         if (checkIfAllAnswered()) {
             stopTimer();
             setTimeout(() => showScoreSummaryModal('Congratulations! All VLSM scenarios are complete.', 'success'), 500);
@@ -5924,7 +5962,7 @@ function atom6CheckWan(qid) {
 }
 
 function atom6ResetScenario(qid) {
-    if (appSettings.mode !== 'practice') return;
+    if (!isRetryAllowed()) return;
     const ex = exerciseData[qid];
     if (!ex) return;
     ex.atom6State = atom6InitialState(ex.scenario);
@@ -5933,6 +5971,7 @@ function atom6ResetScenario(qid) {
     ex.isPartial = false;
     ex.locked = false;
     atom6Rerender(qid);
+    saveSessionProgress();
 }
 
 function updateAtom6NavScore() {
@@ -6181,7 +6220,7 @@ function saveConversionProgress() {
     const ex = exerciseData[currentFile];
     if (!ex || !ex.isConversionQuestion || ex.locked) return;
     ex.userAnswer = collectConversionAnswer(ex);
-    if (appSettings.mode === 'exam') saveExamSession();
+    saveSessionProgress();
 }
 
 // --- PHASE 3 & PHASE 6: EXPAND-ON-FOCUS OCTET BINARY INPUT ---
@@ -6702,6 +6741,7 @@ function saveProgress(index, value) {
             exerciseData[currentFile].userProgress[index] = value;
         }
     }
+    saveSessionProgress();
 }
 
 function setInputsDisabled(disabled) {
@@ -6862,23 +6902,11 @@ function showDefaultLandingPage() {
 // open (its DOM already exists, just hidden, so this only wires up event
 // listeners + does the first render — see SubnetVisualizer.init's guard).
 function showSubnetVisualizer() {
-    // Ungraded, free-exploration tool — unavailable during a timed exam
-    // (its sidebar entry is also hidden via CSS, see body.exam-mode
-    // #nav-subnetVisualizer in styles.css). This guard covers any other
-    // way the function might still get called — a stale reference, the
-    // browser back button, etc. — by redirecting to the same mode-aware
-    // fallback the login flow itself uses.
-    if (appSettings.mode === 'exam') {
-        showDefaultLandingPage();
-        return;
-    }
-
     document.querySelectorAll('.sidebar li').forEach(l => l.classList.remove('active'));
     const navItem = document.getElementById('nav-subnetVisualizer');
     if (navItem) navItem.classList.add('active');
 
     document.getElementById('exerciseArea').style.display = 'none';
-    document.getElementById('timerContainer').style.display = 'none';
     document.getElementById('atomPlaceholderView').style.display = 'none';
     document.getElementById('atom1View').style.display = 'none';
     document.getElementById('atom2View').style.display = 'none';
@@ -6954,10 +6982,7 @@ function switchExercise(name, el) {
     // own atomXView — see index.html), so hiding an atomXView no longer
     // hides its bar "for free"; hide all four explicitly here too.
     hideAllAtomPaginationBars();
-    // The visualizer hides the timer bar (it's exercise-specific chrome)
-    // without stopping the underlying interval — re-show it here if an
-    // exam timer is actually still running, rather than leaving it hidden
-    // for the rest of the session.
+    // Keep the optional activity timer visible when it is running.
     if (timerIntervalId) {
         document.getElementById('timerContainer').style.display = 'flex';
     }
@@ -7017,8 +7042,8 @@ function switchExercise(name, el) {
         }
         setInputsDisabled(true);
         
-        // Only allow reset in practice mode
-        if (appSettings.mode === 'practice') {
+        // Only Practice mode permits another attempt after verification.
+        if (isRetryAllowed()) {
             document.getElementById('actionButton').textContent = 'Reset';
         } else {
             document.getElementById('actionButton').textContent = 'Locked';
@@ -7155,7 +7180,7 @@ function buildFeedbackForExercise(ex) {
             // were right rather than a flat "not quite".
             const unit = ex.type === 'atom3' ? 'items' : 'octets';
             return {
-                text: (appSettings.mode === 'practice')
+                text: isRetryAllowed()
                     ? `${score}/${totalLines} ${unit} correct — try again.`
                     : `${score}/${totalLines} ${unit} correct.`,
                 icon: null,
@@ -7164,7 +7189,7 @@ function buildFeedbackForExercise(ex) {
             };
         }
         return {
-            text: "Not quite" + (appSettings.mode === 'practice' ? " — try again." : "."),
+            text: "Not quite" + (isRetryAllowed() ? " — try again." : "."),
             icon: null,
             cls: "error show",
             perfect: false
@@ -7249,14 +7274,13 @@ function checkAnswers() {
         triggerBigConfetti();
     }
 
+    saveSessionProgress();
+
     // Change action button based on mode
     const actionBtn = document.getElementById('actionButton');
     if (appSettings.mode === 'exam') {
         actionBtn.textContent = 'Locked';
         actionBtn.disabled = true;
-
-        // Persist this student's progress so it survives a reload.
-        saveExamSession();
 
         // Check if all exercises have been answered in exam mode
         if (checkIfAllAnswered()) {
@@ -7275,8 +7299,8 @@ function resetCurrentExercise() {
     if (!currentFile) return;
     
     // Prevent reset in exam mode
-    if (appSettings.mode === 'exam') {
-        showAlertModal('Reset Not Allowed', 'Reset is not allowed in Exam Mode.');
+    if (!isRetryAllowed()) {
+        showAlertModal('Reset Not Allowed', sessionTimedOut ? 'Reset is not allowed after time expires.' : 'Reset is not allowed in Exam Mode.');
         return;
     }
     
@@ -7339,6 +7363,7 @@ function resetCurrentExercise() {
     feedbackEl.textContent = '';
     feedbackEl.className = '';
     document.getElementById('actionButton').textContent = 'Verify Answer';
+    saveSessionProgress();
 }
 
 function triggerConfetti() {
@@ -7390,6 +7415,11 @@ function openSettingsModal() {
     // Set current settings in the modal
     document.querySelector(`input[name="mode"][value="${appSettings.mode}"]`).checked = true;
     document.getElementById('timerInput').value = appSettings.timerMinutes;
+    const timerToggle = document.getElementById('timerEnabledToggle');
+    if (timerToggle) timerToggle.checked = appSettings.timerEnabled;
+    const persistenceToggle = document.getElementById('persistenceEnabledToggle');
+    if (persistenceToggle) persistenceToggle.checked = appSettings.persistenceEnabled;
+    updateTimerSettingState();
 
     const autoShowToggle = document.getElementById('autoShowSampleToggle');
     if (autoShowToggle) {
@@ -7399,17 +7429,6 @@ function openSettingsModal() {
     const practiceSeedInput = document.querySelector(`input[name="practiceSeedMode"][value="${appSettings.practiceQuestionMode}"]`);
     if (practiceSeedInput) practiceSeedInput.checked = true;
     
-    // Show/hide timer section (exam only) and practice seed section
-    // (practice only) based on mode — the two are mutually exclusive.
-    const timerSection = document.getElementById('timerSection');
-    const practiceSeedSection = document.getElementById('practiceSeedSection');
-    if (appSettings.mode === 'exam') {
-        timerSection.style.display = 'block';
-        if (practiceSeedSection) practiceSeedSection.style.display = 'none';
-    } else {
-        timerSection.style.display = 'none';
-        if (practiceSeedSection) practiceSeedSection.style.display = 'block';
-    }
 }
 
 function closeSettingsModal() {
@@ -7418,17 +7437,14 @@ function closeSettingsModal() {
 }
 
 function handleModeChange() {
-    const selectedMode = document.querySelector('input[name="mode"]:checked').value;
-    const timerSection = document.getElementById('timerSection');
-    const practiceSeedSection = document.getElementById('practiceSeedSection');
-    
-    if (selectedMode === 'exam') {
-        timerSection.style.display = 'block';
-        if (practiceSeedSection) practiceSeedSection.style.display = 'none';
-    } else {
-        timerSection.style.display = 'none';
-        if (practiceSeedSection) practiceSeedSection.style.display = 'block';
-    }
+    // Mode controls retry permission only. Timer, persistence, and seeding
+    // remain visible and independently configurable.
+}
+
+function updateTimerSettingState() {
+    const toggle = document.getElementById('timerEnabledToggle');
+    const input = document.getElementById('timerInput');
+    if (input) input.disabled = !(toggle && toggle.checked);
 }
 
 function validateTimerInput(input) {
@@ -7456,9 +7472,11 @@ function saveSettings() {
     const selectedMode = document.querySelector('input[name="mode"]:checked').value;
     const timerInput = document.getElementById('timerInput');
     const timerValue = parseInt(timerInput.value, 10);
+    const timerEnabled = !!document.getElementById('timerEnabledToggle')?.checked;
+    const persistenceEnabled = !!document.getElementById('persistenceEnabledToggle')?.checked;
     
     // Validate timer input
-    if (selectedMode === 'exam') {
+    if (timerEnabled) {
         if (isNaN(timerValue) || timerValue < 1 || timerValue > 999) {
             alert('Please enter a valid timer value between 1 and 999 minutes.');
             return;
@@ -7467,6 +7485,8 @@ function saveSettings() {
     }
     
     appSettings.mode = selectedMode;
+    appSettings.timerEnabled = timerEnabled;
+    appSettings.persistenceEnabled = persistenceEnabled;
 
     const autoShowToggle = document.getElementById('autoShowSampleToggle');
     if (autoShowToggle) {
@@ -7486,6 +7506,7 @@ function saveSettings() {
             currentPracticeSeed = null;
         }
     }
+    saveAppPreferences();
 
     closeSettingsModal();
 
@@ -7495,7 +7516,9 @@ function saveSettings() {
     applyAutoShowForCurrentExercise();
     
     // Show toast notification
-    showNotification(`Settings saved! Mode: ${selectedMode === 'exam' ? 'Exam (' + timerValue + ' min)' : 'Practice'}`);
+    const timerLabel = timerEnabled ? `, timer: ${timerValue} min` : ', timer: off';
+    const persistenceLabel = persistenceEnabled ? ', local progress: on' : ', local progress: off';
+    showNotification(`Settings saved! Mode: ${selectedMode === 'exam' ? 'Exam' : 'Practice'}${timerLabel}${persistenceLabel}`);
 }
 
 function showNotification(message) {
@@ -7522,19 +7545,19 @@ function showNotification(message) {
     }, 3000);
 }
 
-// --- EXAM SESSION PERSISTENCE (keyed by student email) ---
-// Exam mode only: keeps each student's in-progress or completed exam
-// (locked/unlocked state, score, and line order per exercise, plus the
-// real timer deadline) in localStorage so a page reload, browser crash,
-// or accidental tab close doesn't cost them their progress or hand them
-// a brand-new full-length timer. Practice mode is intentionally not
-// persisted — there's nothing at stake in a reset there.
+// --- LOCAL SESSION PERSISTENCE (keyed by mode and student email) ---
+// Exam and Practice use separate records. Practice also stores its seed so
+// seeded questions are rebuilt exactly before exercise state is restored.
 function getExamStorageKey(email) {
-    return `examSession_${email}`;
+    return `examSession_${appSettings.practiceQuestionMode}_${email}`;
 }
 
-function saveExamSession() {
-    if (appSettings.mode !== 'exam' || !currentUser) return;
+function getPracticeStorageKey(email) {
+    return `practiceSession_${appSettings.practiceQuestionMode}_${email}`;
+}
+
+function saveSessionProgress() {
+    if (!appSettings.persistenceEnabled || !currentUser) return;
 
     const exercises = {};
     for (const file in exerciseData) {
@@ -7548,24 +7571,37 @@ function saveExamSession() {
         };
     }
 
-    const isTimeUp = typeof examEndTimestamp === 'number' && Date.now() >= examEndTimestamp;
+    const isTimerActive = appSettings.timerEnabled;
+    const isTimeUp = isTimerActive && typeof examEndTimestamp === 'number' && Date.now() >= examEndTimestamp;
 
     const session = {
-        timerMinutes: appSettings.timerMinutes,
-        examEndTimestamp: examEndTimestamp,
+        schemaVersion: 1,
+        mode: appSettings.mode,
+        practiceQuestionMode: appSettings.practiceQuestionMode,
+        practiceSeed: currentQuestionSeed,
+        persistenceEnabled: appSettings.persistenceEnabled,
+        timerEnabled: appSettings.timerEnabled,
+        timerMinutes: isTimerActive ? appSettings.timerMinutes : null,
+        examEndTimestamp: isTimerActive ? examEndTimestamp : null,
         completed: checkIfAllAnswered() || isTimeUp,
         exercises,
         savedAt: Date.now()
     };
 
     try {
-        localStorage.setItem(getExamStorageKey(currentUser), JSON.stringify(session));
+        const storageKey = appSettings.mode === 'exam' ? getExamStorageKey(currentUser) : getPracticeStorageKey(currentUser);
+        localStorage.setItem(storageKey, JSON.stringify(session));
     } catch (e) {
-        console.warn('Could not save exam session progress:', e);
+        console.warn('Could not save local session progress:', e);
     }
 }
 
+function saveTimerProgress() {
+    if (appSettings.timerEnabled) saveSessionProgress();
+}
+
 function loadExamSession(email) {
+    if (!appSettings.persistenceEnabled) return null;
     try {
         const raw = localStorage.getItem(getExamStorageKey(email));
         return raw ? JSON.parse(raw) : null;
@@ -7575,15 +7611,28 @@ function loadExamSession(email) {
     }
 }
 
+function loadPracticeSession(email) {
+    if (!appSettings.persistenceEnabled) return null;
+    try {
+        const raw = localStorage.getItem(getPracticeStorageKey(email));
+        const session = raw ? JSON.parse(raw) : null;
+        return session && session.mode === 'practice' ? session : null;
+    } catch (e) {
+        console.warn('Could not load Practice session progress:', e);
+        return null;
+    }
+}
+
 // Timer Management
-// resumeSeconds, when provided, resumes a persisted exam session at the
+// resumeSeconds, when provided, resumes a persisted timed session at the
 // real remaining time (e.g. after a page reload) instead of granting a
 // fresh full-length timer.
 function startTimer(resumeSeconds) {
-    if (appSettings.mode !== 'exam') {
+    if (!appSettings.timerEnabled) {
         return;
     }
 
+    sessionTimedOut = false;
     if (typeof resumeSeconds === 'number' && resumeSeconds >= 0) {
         timeRemaining = resumeSeconds;
         examEndTimestamp = Date.now() + timeRemaining * 1000;
@@ -7596,7 +7645,7 @@ function startTimer(resumeSeconds) {
     timerContainer.style.display = 'flex';
 
     updateTimerDisplay();
-    saveExamSession(); // persist the deadline right away, before any answers are checked
+    saveTimerProgress(); // persist the deadline right away, before any answers are checked
 
     let tickCount = 0;
     timerIntervalId = setInterval(() => {
@@ -7609,7 +7658,7 @@ function startTimer(resumeSeconds) {
         // Throttle persistence to avoid writing to storage every second.
         tickCount++;
         if (tickCount % 5 === 0) {
-            saveExamSession();
+            saveTimerProgress();
         }
 
         if (timeRemaining <= 0) {
@@ -7646,6 +7695,7 @@ function stopTimer() {
 
 function handleTimerExpired() {
     stopTimer();
+    sessionTimedOut = true;
     
     // Lock all exercises
     for (const file in exerciseData) {
@@ -7657,7 +7707,7 @@ function handleTimerExpired() {
     document.getElementById('actionButton').disabled = true;
 
     // Persist the final, fully-locked state for this student.
-    saveExamSession();
+    saveTimerProgress();
 
     // Show score summary modal
     showScoreSummaryModal('Time is up! Your exam session has ended.', 'warning');

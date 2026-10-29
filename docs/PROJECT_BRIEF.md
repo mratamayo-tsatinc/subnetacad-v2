@@ -67,14 +67,14 @@ The practice-only Subnet Visualizer supports discovery through six linked panels
 
 - Client-side student allowlist check using school email and student number.
 - Pre-login Practice and Exam mode selection.
-- Fixed or session-random practice question sets.
-- Email-seeded, reproducible per-student exam questions.
+- Fixed shared or locally preserved per-student random question sets in either mode.
 - Configurable question counts and allowed address classes.
 - Configuration-driven curriculum and session defaults that can be manually edited without changing core logic.
 - Atom 6 VLSM volume practice with question pagination, progressive source-subnet state, decimal IPv4 inputs, field-level validation, and a shared router-connection subnet.
 - Optional legacy conversion phases for decimal, binary, IP, mask, and classful CIDR work; disabled in the checked-in configuration.
-- 90-minute default exam timer with warning and critical states.
-- Exam answer locking, disabled reset, hidden visualizer, and `localStorage` resume.
+- Optional mode-independent timer with warning and critical states.
+- Configurable local persistence for Practice and Exam seeds, answers, scores, locks, and optional deadlines.
+- Exam mode controls single-attempt locking only; Practice mode permits reset and retry.
 - Running score, per-module score badges, completion summary, confetti, CSV export, and QR result sharing.
 - Responsive sidebar, touch-specific ordering controls, keyboard Escape handling, ARIA labels/live regions, and reduced-motion handling.
 - Dark, bit-semantic visual system and optional presenter mode.
@@ -93,9 +93,10 @@ The practice-only Subnet Visualizer supports discovery through six linked panels
 
 | Area | Checked-in setting |
 |---|---|
-| Default mode | Exam |
-| Exam duration | 90 minutes |
-| Practice seed | Fixed by default; random is selectable |
+| Default mode | Practice |
+| Timer | Disabled by default; independently configurable from 1–999 minutes |
+| Local persistence | Enabled by default; independent of activity mode |
+| Activity seed | Fixed by default; per-student random is selectable in either mode |
 | Legacy phases 1–7 | Disabled |
 | Atoms 1–5 | Disabled and hidden |
 | Atom 6 | 10 VLSM scenarios: 4 foundation, 3 intermediate, 3 advanced |
@@ -109,7 +110,7 @@ Atom 6 awards one point for correct ordering, one for every completed LAN alloca
 
 - **Show the bits behind the answer.** Prefer spatial, inspectable transformations over opaque calculators.
 - **Keep semantic color stable.** Blue is locked/network, amber is borrowed/subnet, green is host, red is network ID, and yellow is broadcast.
-- **Separate learning from assessment.** Practice can expose formulas, hints, retries, and the visualizer; exam mode restricts answer-revealing affordances.
+- **Keep mode narrowly defined.** Practice permits retries; Exam is single-attempt. Timing, persistence, seeding, aids, and navigation are independent.
 - **Make generated work reproducible.** A seed must regenerate the same questions and ordering when an attempt resumes.
 - **Progressive complexity.** Teach one decision at a time before asking students to combine decisions in scenarios.
 - **Device-appropriate interaction.** Do not rely on drag-and-drop alone where touch or keyboard users need an alternative.
@@ -129,7 +130,7 @@ The current repository does not collect analytics. Recommended measures for a fu
 
 - At least 95% of enrolled students can enter and begin without instructor intervention.
 - At least 99% of answer checks produce the expected result in a generated-answer test suite.
-- Refresh recovery restores the same questions, answers, locks, score, and real deadline in all supported browsers.
+- With local persistence enabled, refresh recovery restores the same questions, answers, locks, score, and optional real deadline in all supported browsers.
 - At least 90% of students can complete key flows at 360 px width without horizontal page scrolling.
 - Keyboard-only users can reach, operate, and understand every scored control.
 - Student score discrepancies attributable to generation or grading defects remain at zero.
@@ -141,7 +142,7 @@ The current repository does not collect analytics. Recommended measures for a fu
 | Client-side roster and student IDs | Personal data exposure and impersonation | `students.csv` is downloaded by every browser | Move identity validation server-side; never publish raw IDs |
 | Client-authoritative exams | Attempts, timers, and scores can be altered | All logic and state are in JavaScript/`localStorage` | Treat as low-stakes or add a trusted assessment service |
 | Shared QR passphrase in source | Results can be fabricated by a knowledgeable user | Code correctly notes it is obfuscation, not a security boundary | Use server-signed result tokens |
-| Local-only persistence | Attempt cannot follow the student across devices; clearing storage loses it | Exam state is keyed by email in one browser | Store attempt state server-side if continuity is required |
+| Local-only persistence | Attempt cannot follow the student across devices; clearing storage loses it | Mode-separated activity state is keyed by email in one browser | Store attempt state server-side if continuity is required |
 | CDN dependencies | Fonts/icons/QR may fail on restricted networks | Three remote resources are loaded at runtime | Self-host or provide resilient fallbacks |
 | Monolithic source files | Regression risk and slow maintenance | Most logic lives in one ~8.4k-line script and one large stylesheet | Modularize by domain with automated tests |
 | Incorrect-zero completion path | A fully answered exam with any zero-scored card may not end early | Completion requires both `locked` and nonzero `score` | Define completion as answered/locked, independent of correctness |

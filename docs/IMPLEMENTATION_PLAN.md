@@ -24,12 +24,12 @@ script.js
   ├─ renderers + interaction handlers
   ├─ graders + feedback + scoring
   ├─ navigation + pagination + dialogs
-  ├─ exam timer + local persistence
+  ├─ mode-independent optional timer + local persistence
   ├─ CSV + QR result output
   └─ SubnetVisualizer IIFE/calculation engine
 
 students.csv ──fetch──> client-side allowlist check
-localStorage <────────> per-email exam session
+localStorage <────────> per-email Practice/Exam sessions + saved seed
 Web Crypto + QRCode.js ──> external result page URL
 ```
 

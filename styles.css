@@ -1712,36 +1712,6 @@ body, html {
     text-shadow: 0 0 6px rgba(16, 185, 129, 0.45);
 }
 
-/* --- EXAM MODE: HIDE BIT PLACE-VALUE LABELS ---
-   The 128/64/32/.../1 label above each bit box effectively hands the
-   student the exact place value to add up — appropriate as a learning aid
-   in Practice Mode, but a giveaway during a timed Exam Mode assessment.
-   Toggled via a single body-level class (see loadAllExercises in
-   script.js) so it applies to every bit grid — Phase 1, Phase 2's
-   read-only "given" grid, and the Phase 3/6 octet grids — without needing
-   per-grid changes. `visibility: hidden` (not `display: none`) keeps each
-   label's layout space reserved, so the bit boxes underneath sit at the
-   exact same position in both modes rather than shifting upward once the
-   labels above them disappear. */
-body.exam-mode .bit-place-value {
-    visibility: hidden;
-}
-
-/* --- EXAM MODE: HIDE SUBNET VISUALIZER ---
-   The Subnet Visualizer is an ungraded, free-exploration tool that lets a
-   student directly drag the CIDR boundary and watch every derived value
-   (mask, subnet count, host ranges) update live — a great practice aid,
-   but exactly the kind of on-demand answer calculator a timed assessment
-   shouldn't leave reachable. Hidden via the same body-level class every
-   other exam-mode restriction in this file uses (see loadAllExercises in
-   script.js), so its sidebar entry disappears the instant exam mode is
-   active. The corresponding JS guard (showSubnetVisualizer in script.js)
-   redirects away from the tool if it's ever reached anyway — this rule
-   just keeps the entry point itself out of sight. */
-body.exam-mode #nav-subnetVisualizer {
-    display: none;
-}
-
 .answer-input-num {
     width: 140px;
     padding: 10px 14px;

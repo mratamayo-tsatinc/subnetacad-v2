@@ -59,13 +59,13 @@
                         </label>
                         <label class="radio-option">
                             <input type="radio" name="mode" value="exam" onchange="handleModeChange()" aria-describedby="examDesc">
-                            <span>Exam Mode (Timed)</span>
+                            <span>Exam Mode (single attempt)</span>
                         </label>
                     </div>
                 </div>
 
                 <div class="settings-section" id="practiceSeedSection" style="display: block;">
-                    <label class="settings-label">Practice Question Set</label>
+                    <label class="settings-label">Activity Question Set</label>
                     <div class="mode-options">
                         <label class="radio-option">
                             <input type="radio" name="practiceSeedMode" value="fixed" checked aria-describedby="practiceSeedHint">
@@ -73,13 +73,20 @@
                         </label>
                         <label class="radio-option">
                             <input type="radio" name="practiceSeedMode" value="random" aria-describedby="practiceSeedHint">
-                            <span>New random set each session</span>
+                            <span>Random set (saved locally)</span>
                         </label>
                     </div>
-                    <small class="input-hint" id="practiceSeedHint">Fixed gives every student the same practice questions, useful for walking through them together. Random generates a fresh set each time a student logs in.</small>
+                    <small class="input-hint" id="practiceSeedHint">Fixed gives every student the same activity set. Random creates a per-student set; when local progress is enabled, that seed is restored in either mode.</small>
                 </div>
 
-                <div class="settings-section" id="timerSection" style="display: none;">
+                <div class="settings-section" id="timerSection">
+                    <label class="toggle-control" for="timerEnabledToggle">
+                        <span class="toggle-switch">
+                            <input type="checkbox" id="timerEnabledToggle" onchange="updateTimerSettingState()">
+                            <span class="toggle-slider" aria-hidden="true"></span>
+                        </span>
+                        <span class="toggle-label">Enable activity timer</span>
+                    </label>
                     <label class="settings-label" for="timerInput">Timer (minutes)</label>
                     <input 
                         type="number" 
@@ -92,7 +99,18 @@
                         oninput="validateTimerInput(this)"
                         aria-describedby="timerHint"
                     >
-                    <small class="input-hint" id="timerHint">Enter a number between 1 and 999 minutes</small>
+                    <small class="input-hint" id="timerHint">Optional in both Practice and Exam modes. Enter 1–999 minutes.</small>
+                </div>
+
+                <div class="settings-section">
+                    <label class="toggle-control" for="persistenceEnabledToggle">
+                        <span class="toggle-switch">
+                            <input type="checkbox" id="persistenceEnabledToggle" checked>
+                            <span class="toggle-slider" aria-hidden="true"></span>
+                        </span>
+                        <span class="toggle-label">Preserve progress locally</span>
+                    </label>
+                    <small class="input-hint">When enabled, the student’s seed, answers, scores, and activity state are restored in this browser in either mode.</small>
                 </div>
 
                 <div class="settings-section">

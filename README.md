@@ -1,6 +1,6 @@
 # SubnetAcad v2
 
-SubnetAcad v2 is a pure front-end, browser-based IPv4 subnetting learning and assessment application. It combines a six-panel subnet visualizer with configurable scored learning modules ("Atoms"), deterministic question generation, practice and timed-exam modes, browser persistence, CSV export, and QR-based result sharing.
+SubnetAcad v2 is a pure front-end, browser-based IPv4 subnetting learning and assessment application. It combines a six-panel subnet visualizer with configurable scored learning modules ("Atoms"), deterministic question generation, retryable Practice and single-attempt Exam modes, optional timing, configurable browser persistence, CSV export, and QR-based result sharing.
 
 The application is intentionally lightweight: `index.html`, `styles.css`, and `script.js` run directly in the browser without a package manager, compilation step, application server, or database. Its behavior is configuration-driven: users can change the dedicated configuration values near the top of `script.js` without altering the core generation, grading, rendering, navigation, or persistence logic.
 

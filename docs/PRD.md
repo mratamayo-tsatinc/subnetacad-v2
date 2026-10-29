@@ -13,20 +13,19 @@ Enable a student to learn and demonstrate classful IPv4 subnetting through repro
 ### Journey A: practice
 
 1. Student opens Settings from the login screen and selects Practice.
-2. Student chooses a fixed or fresh question set and signs in with listed credentials.
+2. Student chooses a fixed or random question set, optional timer, and local persistence, then signs in.
 3. The app opens the Subnet Visualizer.
 4. Student explores the six linked panels or enters an Atom module.
 5. Student verifies an answer, sees feedback, and may reset and retry.
 6. Student checks the running total or downloads results.
 
-### Journey B: timed exam
+### Journey B: single-attempt activity
 
-1. Student selects Exam and the configured duration, then signs in.
-2. The app deterministically generates that student's questions and opens the first enabled scored module.
-3. The visualizer is unavailable; bit-weight labels are reduced to avoid answer leakage.
-4. Each verified response locks. The attempt and deadline persist locally.
-5. Refreshing the page restores the same attempt and remaining time.
-6. Completion or timeout locks the attempt and displays the score and QR result.
+1. Student selects Exam to disable retries, independently chooses whether to enable the timer and persistence, then signs in.
+2. The app generates the configured fixed or random seeded set and opens the first enabled scored module.
+3. Each verified response locks and cannot be reset in Exam mode.
+4. When persistence is enabled, refreshing restores the same seed, state, and optional deadline.
+5. Completion or timeout displays the score and QR result.
 
 ### Journey C: instructor configuration
 
@@ -49,9 +48,9 @@ Enable a student to learn and demonstrate classful IPv4 subnetting through repro
 
 | ID | Requirement | Status | Acceptance criteria |
 |---|---|---|---|
-| MODE-01 | Settings can select Practice or Exam before entry. | Implemented | Mode-specific controls appear and the saved choice drives the landing page and grading behavior. |
-| MODE-02 | Practice can use a stable shared seed or a new seed per login session. | Implemented | Fixed mode regenerates the same set; random mode remains stable within a session and changes on a later login. |
-| MODE-03 | Exam duration accepts 1–999 minutes. | Implemented | Invalid values are rejected; valid values initialize the timer. |
+| MODE-01 | Settings can select Practice or Exam before entry. | Implemented | Practice permits retries after checking; Exam locks each checked attempt. Mode does not control timer, persistence, aids, or navigation. |
+| MODE-02 | Either mode can use a stable shared seed or a per-student random seed. | Implemented | Fixed regenerates the shared set; random restores the same local seed when persistence is enabled. |
+| MODE-03 | An optional mode-independent timer accepts 1–999 minutes. | Implemented | The timer can be enabled in Practice or Exam; invalid durations are rejected. |
 | MODE-04 | Mode controls must not be changeable after an attempt begins without an explicit restart policy. | Partial | Settings are exposed only on the login screen, but no server policy prevents reload/manipulation. |
 
 ### Question generation and curriculum
@@ -80,7 +79,7 @@ Enable a student to learn and demonstrate classful IPv4 subnetting through repro
 
 | ID | Requirement | Status | Acceptance criteria |
 |---|---|---|---|
-| EXAM-01 | Exam mode hides the answer-producing visualizer and relevant bit-weight aids. | Implemented | The visualizer cannot be opened through navigation or direct function call in exam mode. |
+| EXAM-01 | Exam mode only removes the ability to retry a checked attempt. | Implemented | Timer, persistence, seeding, aids, and navigation remain independent settings/behaviors. |
 | EXAM-02 | A verified exam response cannot be edited or reset. | Implemented | Inputs lock, the action becomes disabled, and reload preserves the lock. |
 | EXAM-03 | The timer is based on a fixed deadline and survives refresh without granting extra time. | Implemented | Remaining time is recomputed from the saved timestamp; an expired attempt reopens locked. |
 | EXAM-04 | Timeout locks every scored item and shows the final score. | Implemented | At zero, inputs disable, state persists, and a warning summary opens. |
@@ -92,8 +91,8 @@ Enable a student to learn and demonstrate classful IPv4 subnetting through repro
 
 | ID | Requirement | Status | Acceptance criteria |
 |---|---|---|---|
-| DATA-01 | Exam progress persists per student in the same browser. | Implemented | Locks, score, answers/order, completion, duration, and deadline restore from `localStorage`. |
-| DATA-02 | Practice work is ephemeral. | Implemented | Practice does not write exam session records. |
+| DATA-01 | Local persistence can be enabled independently in either mode. | Implemented | Seed, locks, score, answers/order, completion, and optional deadline restore from mode-separated per-student `localStorage` records. |
+| DATA-02 | Persistence can be disabled without changing activity mode. | Implemented | With persistence off, progress and seeds are not read from or written to activity-session records. |
 | DATA-03 | Students can export a per-exercise CSV. | Implemented | Download includes student, display label, and earned/possible score for each generated exercise. |
 | DATA-04 | A QR result can be generated from the current or final total. | Implemented with security limitation | QR opens the configured result page and carries email, timestamp, and score in an encrypted client-generated token. |
 | DATA-05 | High-stakes results must be verifiable and tamper-evident. | Planned | Result tokens are signed by a trusted server and the verifier checks attempt identity, score, and issuance. |
