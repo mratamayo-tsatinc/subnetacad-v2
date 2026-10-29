@@ -175,8 +175,14 @@ const QUESTION_CONFIG = {
         enabled: true,
         minLans: 3,
         maxLans: 5,
-        minWans: 2,
-        maxWans: 4,
+        minWans: 1,
+        maxWans: 3,
+        topology: {
+            minRouters: 2,
+            maxRouters: 4,
+            maxLanPortsPerRouter: 2,
+            maxWanPortsPerRouter: 2
+        },
         wanRequirement: {
             requiredIp: 2,
             allocationCidr: 30,
@@ -196,7 +202,9 @@ const QUESTION_CONFIG = {
         levels: [
             {
                 id: 'foundation', label: 'Foundation', numQuestions: 4,
-                lanCount: 3, wanCount: 2,
+                routerCount: 2, lanCount: 3, wanCount: 1,
+                lanPortsPerRouter: [2, 1],
+                wanRouterPairs: [[1, 2]],
                 parentPools: [
                     // Configured Class C practice pool. Starting at 193
                     // deliberately avoids the familiar 192.168.x.0 range.
@@ -205,14 +213,18 @@ const QUESTION_CONFIG = {
             },
             {
                 id: 'intermediate', label: 'Intermediate', numQuestions: 3,
-                lanCount: 4, wanCount: 3,
+                routerCount: 3, lanCount: 4, wanCount: 2,
+                lanPortsPerRouter: [2, 1, 1],
+                wanRouterPairs: [[1, 2], [2, 3]],
                 parentPools: [
                     { cidr: 24, octetRanges: [[193, 223], [0, 254], [0, 254], [0, 255]] }
                 ]
             },
             {
                 id: 'advanced', label: 'Advanced', numQuestions: 3,
-                lanCount: 5, wanCount: 4,
+                routerCount: 4, lanCount: 5, wanCount: 3,
+                lanPortsPerRouter: [2, 1, 1, 1],
+                wanRouterPairs: [[1, 2], [2, 3], [3, 4]],
                 parentPools: [
                     { cidr: 24, octetRanges: [[193, 223], [0, 254], [0, 254], [0, 255]] }
                 ]
@@ -249,7 +261,7 @@ let appSettings = {
 };
 
 const APP_PREFERENCES_STORAGE_KEY = 'subnetacadAppPreferences';
-const LOCAL_SESSION_SCHEMA_VERSION = 2;
+const LOCAL_SESSION_SCHEMA_VERSION = 3;
 
 // Holds the persisted seed for random Practice mode. It is restored before
 // question generation so refreshes and later logins rebuild the exact same
@@ -5461,30 +5473,66 @@ function atom6GenerateParent(level, rng) {
 function atom6BuildTopology(level, cfg, rng) {
     const lanTotal = Math.max(Number(cfg.minLans), Math.min(Number(cfg.maxLans), Number(level.lanCount)));
     const wanTotal = Math.max(Number(cfg.minWans), Math.min(Number(cfg.maxWans), Number(level.wanCount)));
+    const topologyCfg = cfg.topology;
+    const routerCount = Math.max(Number(topologyCfg.minRouters), Math.min(Number(topologyCfg.maxRouters), Number(level.routerCount)));
+    const maxLanPorts = Number(topologyCfg.maxLanPortsPerRouter);
+    const maxWanPorts = Number(topologyCfg.maxWanPortsPerRouter);
+    const lanPortsPerRouter = (level.lanPortsPerRouter || []).map(Number);
+    const wanRouterPairs = (level.wanRouterPairs || []).map(pair => pair.map(value => Number(value) - 1));
+    if (lanPortsPerRouter.length !== routerCount || lanPortsPerRouter.reduce((sum, count) => sum + count, 0) !== lanTotal ||
+        lanPortsPerRouter.some(count => count < 0 || count > maxLanPorts) || wanRouterPairs.length !== wanTotal) {
+        throw new Error('Atom 6 level topology does not match its configured router, LAN, and WAN counts.');
+    }
+    const wanPortUsage = Array.from({ length: routerCount }, () => 0);
+    wanRouterPairs.forEach(pair => {
+        if (pair.length !== 2 || pair[0] < 0 || pair[0] >= routerCount || pair[1] < 0 || pair[1] >= routerCount || pair[0] === pair[1]) {
+            throw new Error('Atom 6 contains an invalid configured WAN router pair.');
+        }
+        wanPortUsage[pair[0]]++;
+        wanPortUsage[pair[1]]++;
+    });
+    if (wanPortUsage.some(count => count > maxWanPorts)) {
+        throw new Error('Atom 6 topology exceeds the configured LAN or WAN port capacity.');
+    }
+
+    const routers = Array.from({ length: routerCount }, (_, i) => ({
+        id: 'router-' + (i + 1), number: i + 1, lanIds: [], wanIds: []
+    }));
     const names = atom6Shuffle(cfg.lanNames, rng).slice(0, lanTotal);
     const profilesBySize = [...cfg.lanProfiles].sort((a, b) => Number(b.maxHosts) - Number(a.maxHosts));
     const lans = [];
+    const lanRouterIndices = lanPortsPerRouter.flatMap((count, routerIndex) => Array.from({ length: count }, () => routerIndex));
     for (let i = 0; i < lanTotal; i++) {
         const profile = i < profilesBySize.length ? profilesBySize[i] : atom6PickWeighted(rng, cfg.lanProfiles);
         const hosts = randInt(rng, Number(profile.minHosts), Number(profile.maxHosts));
-        lans.push({
+        const routerIndex = lanRouterIndices[i];
+        const lan = {
             id: 'lan-' + (i + 1),
             type: 'lan',
             number: i + 1,
             label: names[i],
+            routerId: routers[routerIndex].id,
             hosts,
             requiredCidr: atom6RequiredCidr(hosts)
-        });
+        };
+        routers[routerIndex].lanIds.push(lan.id);
+        lans.push(lan);
     }
 
-    const wans = Array.from({ length: wanTotal }, (_, i) => ({
-        id: 'wan-' + (i + 1),
-        type: 'wan',
-        number: i + 1,
-        label: 'WAN ' + (i + 1),
-        requiredIp: Number(cfg.wanRequirement.requiredIp)
-    }));
-    return { lans, wans };
+    const wans = Array.from({ length: wanTotal }, (_, i) => {
+        const pair = wanRouterPairs[i];
+        const wan = {
+            id: 'wan-' + (i + 1), type: 'wan', number: i + 1,
+            label: 'WAN ' + (i + 1),
+            fromRouterId: routers[pair[0]].id,
+            toRouterId: routers[pair[1]].id,
+            requiredIp: Number(cfg.wanRequirement.requiredIp)
+        };
+        routers[pair[0]].wanIds.push(wan.id);
+        routers[pair[1]].wanIds.push(wan.id);
+        return wan;
+    });
+    return { routers, lans, wans };
 }
 
 function atom6AllocateScenario(parent, topology, cfg) {
@@ -5536,6 +5584,7 @@ function atom6GenerateScenario(level, cfg, rng, scenarioIndex) {
             levelId: level.id,
             levelLabel: level.label,
             parent,
+            routers: topology.routers,
             lans: topology.lans,
             wans: topology.wans,
             solution,
@@ -5674,10 +5723,69 @@ function atom6BlockSummary(block, label) {
         '<small>' + block.mask.join('.') + ' · Available IP: ' + block.availableIp + ' · Usable IP: ' + block.usableIp + '</small></div>';
 }
 
+function atom6BuildTopologyDiagram(scenario) {
+    const siteWidth = 260;
+    const siteGap = 38;
+    const canvasWidth = scenario.routers.length * siteWidth + Math.max(0, scenario.routers.length - 1) * siteGap;
+    const routerCenterX = routerIndex => (siteWidth / 2) + routerIndex * (siteWidth + siteGap);
+    const hasLoopClosingWan = scenario.wans.some(wan => {
+        const fromIndex = scenario.routers.findIndex(router => router.id === wan.fromRouterId);
+        const toIndex = scenario.routers.findIndex(router => router.id === wan.toRouterId);
+        return Math.abs(fromIndex - toIndex) > 1;
+    });
+    const routerTop = hasLoopClosingWan ? 72 : 0;
+    const baseY = routerTop + 36;
+    const overlayHeight = routerTop + 110;
+    const pairTotals = {};
+    scenario.wans.forEach(wan => {
+        const pair = [wan.fromRouterId, wan.toRouterId].sort().join('::');
+        pairTotals[pair] = (pairTotals[pair] || 0) + 1;
+    });
+    const pairSeen = {};
+    const wanPaths = scenario.wans.map(wan => {
+        const fromIndex = scenario.routers.findIndex(router => router.id === wan.fromRouterId);
+        const toIndex = scenario.routers.findIndex(router => router.id === wan.toRouterId);
+        const pair = [wan.fromRouterId, wan.toRouterId].sort().join('::');
+        const occurrence = pairSeen[pair] || 0;
+        pairSeen[pair] = occurrence + 1;
+        const totalForPair = pairTotals[pair];
+        const x1 = routerCenterX(fromIndex);
+        const x2 = routerCenterX(toIndex);
+        const midpoint = (x1 + x2) / 2;
+        const distance = Math.abs(fromIndex - toIndex);
+        let bend = 0;
+        if (totalForPair > 1) bend = (occurrence - (totalForPair - 1) / 2) * 56;
+        else if (distance > 1) bend = 2 * (32 - baseY);
+        const controlY = baseY + bend;
+        const labelY = baseY + bend / 2 - 8;
+        return '<path class="atom6-wan-svg-path" d="M ' + x1 + ' ' + baseY + ' Q ' + midpoint + ' ' + controlY + ' ' + x2 + ' ' + baseY + '"></path>' +
+            '<text class="atom6-wan-svg-label" x="' + midpoint + '" y="' + labelY + '" text-anchor="middle">WAN ' + wan.number + ' · Serial</text>';
+    }).join('');
+
+    const routerCards = scenario.routers.map(router => {
+        const routerLans = scenario.lans.filter(lan => lan.routerId === router.id);
+        const lanBranches = routerLans.map(lan =>
+            '<div class="atom6-lan-branch" aria-label="LAN ' + lan.number + ' topology">' +
+                '<span class="atom6-wired-line" aria-hidden="true"></span>' +
+                '<div class="atom6-device atom6-switch-device"><i class="fa-solid fa-network-wired" aria-hidden="true"></i><span>Switch</span></div>' +
+                '<span class="atom6-wired-line" aria-hidden="true"></span>' +
+                '<div class="atom6-device atom6-host-device"><i class="fa-solid fa-desktop" aria-hidden="true"></i><span>Host</span></div>' +
+                '<div class="atom6-topology-lan-label"><strong>LAN ' + lan.number + '</strong><span>' + atom6Escape(lan.label) + '</span><small>' + lan.hosts + ' hosts required</small></div>' +
+            '</div>'
+        ).join('');
+        return '<div class="atom6-topology-site"><div class="atom6-device atom6-router-device"><i class="fa-solid fa-router" aria-hidden="true"></i><span>Router ' + router.number + '</span><small>' + router.lanIds.length + '/2 LAN · ' + router.wanIds.length + '/2 WAN</small></div>' +
+            '<div class="atom6-lan-branches' + (routerLans.length > 1 ? ' has-multiple' : '') + '">' + lanBranches + '</div></div>';
+    }).join('');
+
+    return '<section class="atom6-topology" aria-label="Network topology"><div class="atom6-topology-heading"><div><span>Scenario Map</span><h3>Network Topology</h3></div><small>Each router supports up to two LAN ports and two WAN ports. One host icon represents each LAN host requirement.</small></div>' +
+        '<div class="atom6-topology-scroll"><div class="atom6-topology-canvas" style="width:' + canvasWidth + 'px"><svg class="atom6-wan-overlay" style="height:' + overlayHeight + 'px" viewBox="0 0 ' + canvasWidth + ' ' + overlayHeight + '" preserveAspectRatio="none" aria-label="Serial WAN connections">' + wanPaths + '</svg><div class="atom6-topology-router-row" style="padding-top:' + routerTop + 'px">' + routerCards + '</div></div></div></section>';
+}
+
 function atom6BuildScenarioBoard(scenario) {
     const lanCards = scenario.lans.map(lan => '<article class="atom6-requirement-card atom6-lan-card"><div class="atom6-requirement-type">LAN ' + lan.number + '</div><div class="atom6-requirement-name">' + atom6Escape(lan.label) + '</div><strong>' + lan.hosts + ' hosts</strong></article>');
     const wanCards = scenario.wans.map(wan => '<article class="atom6-requirement-card atom6-wan-card"><div class="atom6-requirement-type">WAN ' + wan.number + '</div><div class="atom6-requirement-name">Wide Area Network</div><strong>' + wan.requiredIp + ' IP required</strong></article>');
     return '<section class="atom6-scenario-board" aria-label="VLSM scenario"><div class="atom6-parent-network"><span><small>Primary allocation source</small>Parent Network</span><strong>' + scenario.parent.network + '/' + scenario.parent.cidr + '</strong></div>' +
+        atom6BuildTopologyDiagram(scenario) + '<div class="atom6-requirements-heading"><span>Address Requirements</span><h3>LAN and WAN Requirements</h3></div>' +
         '<div class="atom6-requirement-grid">' + lanCards.concat(wanCards).join('') + '</div></section>';
 }
 
@@ -5792,7 +5900,7 @@ function buildAtom6PanelHtml(qid, ex, index) {
     ex.atom6State = ex.atom6State || atom6RestoreState(ex);
     const score = Number(ex.score || 0);
     return '<section class="panel atom1-q-panel atom6-q-panel' + (ex.locked ? ' correct' : '') + '" id="atom6QPanel-' + qid + '" data-qid="' + qid + '">' +
-        '<div class="panel-head"><span class="panel-index">Q' + index + '</span><div><h2>' + atom6Escape(ex.scenario.levelLabel) + ' VLSM Scenario</h2><p>' + ex.scenario.lans.length + ' LANs · ' + ex.scenario.wans.length + ' WANs</p></div><span class="badge atom1-score-badge' + (ex.locked ? ' completed-score' : '') + '" id="atom6ScoreBadge-' + qid + '">' + score + '/' + ex.answers.length + '</span></div>' +
+        '<div class="panel-head"><span class="panel-index">Q' + index + '</span><div><h2>' + atom6Escape(ex.scenario.levelLabel) + ' VLSM Scenario</h2><p>' + ex.scenario.lans.length + ' LANs · ' + ex.scenario.wans.length + ' WAN' + (ex.scenario.wans.length === 1 ? '' : 's') + '</p></div><span class="badge atom1-score-badge' + (ex.locked ? ' completed-score' : '') + '" id="atom6ScoreBadge-' + qid + '">' + score + '/' + ex.answers.length + '</span></div>' +
         atom6BuildProgress(ex) + atom6BuildScenarioBoard(ex.scenario) + atom6BuildOrdering(qid, ex) + atom6BuildCompletedLans(ex) + atom6BuildCurrentLan(qid, ex) + atom6BuildAvailablePool(ex) + atom6BuildWan(qid, ex) + atom6BuildFinalReview(qid, ex) + '</section>';
 }
 

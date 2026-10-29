@@ -1121,6 +1121,218 @@ body, html {
     text-shadow: 0 0 20px rgba(59, 130, 246, 0.42);
 }
 
+.atom6-topology {
+    margin-bottom: 20px;
+    padding: 16px;
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    background: rgba(15, 23, 42, 0.62);
+}
+
+.atom6-topology-heading,
+.atom6-requirements-heading {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+.atom6-topology-heading span,
+.atom6-requirements-heading span {
+    color: var(--text-secondary);
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+}
+
+.atom6-topology-heading h3,
+.atom6-requirements-heading h3 {
+    margin: 3px 0 0;
+    color: var(--text-main);
+    font-size: 1rem;
+}
+
+.atom6-topology-heading > small {
+    max-width: 330px;
+    color: var(--text-secondary);
+    font-size: 0.74rem;
+    line-height: 1.4;
+    text-align: right;
+}
+
+.atom6-topology-scroll {
+    overflow-x: auto;
+    padding: 4px 4px 12px;
+}
+
+.atom6-topology-canvas {
+    position: relative;
+    margin: 0 auto;
+}
+
+.atom6-wan-overlay {
+    position: absolute;
+    z-index: 0;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 110px;
+    overflow: visible;
+    pointer-events: none;
+}
+
+.atom6-wan-svg-path {
+    fill: none;
+    stroke: #a5b4fc;
+    stroke-width: 3;
+    stroke-dasharray: 8 5;
+    vector-effect: non-scaling-stroke;
+}
+
+.atom6-wan-svg-label {
+    fill: #c7d2fe;
+    paint-order: stroke;
+    stroke: #111827;
+    stroke-width: 5px;
+    stroke-linejoin: round;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+}
+
+.atom6-topology-router-row {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 38px;
+}
+
+.atom6-topology-site {
+    width: 260px;
+    flex: 0 0 260px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.atom6-device {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: var(--surface);
+    color: var(--text-main);
+    box-shadow: 0 5px 14px rgba(2, 6, 23, 0.24);
+}
+
+.atom6-device i {
+    font-size: 1.35rem;
+}
+
+.atom6-device span {
+    font-size: 0.68rem;
+    font-weight: 700;
+}
+
+.atom6-router-device {
+    width: 116px;
+    min-height: 72px;
+    border-color: rgba(59, 130, 246, 0.6);
+    color: #93c5fd;
+}
+
+.atom6-router-device small {
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+    font-size: 0.58rem;
+}
+
+.atom6-lan-branches {
+    position: relative;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 12px;
+    padding-top: 8px;
+}
+
+.atom6-lan-branches.has-multiple::before {
+    content: '';
+    position: absolute;
+    top: 8px;
+    left: 62px;
+    right: 62px;
+    border-top: 3px solid var(--locked);
+}
+
+.atom6-lan-branch {
+    width: 124px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.atom6-wired-line {
+    width: 3px;
+    height: 18px;
+    background: linear-gradient(var(--locked), var(--host));
+}
+
+.atom6-switch-device,
+.atom6-host-device {
+    width: 76px;
+    min-height: 54px;
+}
+
+.atom6-switch-device {
+    border-color: rgba(245, 158, 11, 0.55);
+    color: #fbbf24;
+}
+
+.atom6-host-device {
+    border-color: rgba(16, 185, 129, 0.55);
+    color: var(--host);
+}
+
+.atom6-topology-lan-label {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    margin-top: 8px;
+    text-align: center;
+}
+
+.atom6-topology-lan-label strong {
+    color: var(--host);
+    font-size: 0.74rem;
+}
+
+.atom6-topology-lan-label span {
+    color: var(--text-main);
+    font-size: 0.72rem;
+}
+
+.atom6-topology-lan-label small {
+    color: var(--text-secondary);
+    font-family: var(--font-mono);
+    font-size: 0.64rem;
+}
+
+.atom6-requirements-heading {
+    justify-content: flex-start;
+    margin-top: 2px;
+    margin-bottom: 12px;
+}
+
 .atom6-requirement-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));

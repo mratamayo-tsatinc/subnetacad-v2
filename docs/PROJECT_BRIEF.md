@@ -70,7 +70,7 @@ The practice-only Subnet Visualizer supports discovery through six linked panels
 - Fixed shared or locally preserved per-student random question sets in either mode.
 - Configurable question counts and allowed address classes.
 - Configuration-driven curriculum and session defaults that can be manually edited without changing core logic.
-- Atom 6 VLSM volume practice with question pagination, progressive source-subnet state, decimal IPv4 inputs, field-level validation, and a shared WAN source subnet.
+- Atom 6 VLSM volume practice with question pagination, generated labeled network topology, progressive source-subnet state, decimal IPv4 inputs, field-level validation, and a shared WAN source subnet.
 - Optional legacy conversion phases for decimal, binary, IP, mask, and classful CIDR work; disabled in the checked-in configuration.
 - Optional mode-independent timer with warning and critical states.
 - Configurable local persistence for Practice and Exam seeds, answers, scores, locks, and optional deadlines.
@@ -100,7 +100,8 @@ The practice-only Subnet Visualizer supports discovery through six linked panels
 | Legacy phases 1–7 | Disabled |
 | Atoms 1–5 | Disabled and hidden |
 | Atom 6 | 10 VLSM scenarios: 4 foundation, 3 intermediate, 3 advanced |
-| Atom 6 requirements | Foundation: 3 LANs + 2 WANs; intermediate: 4 + 3; advanced: 5 + 4 |
+| Atom 6 requirements | Foundation: 3 LANs + 1 WAN; intermediate: 4 + 2; advanced: 5 + 3 |
+| Atom 6 topology capacity | Configured per level; maximum 2 LAN ports and 2 WAN ports per router |
 | Atom 6 parent networks | Configured Class C `/24`; randomized first three octets; excludes `192.168` |
 | Strict binary width | Enabled |
 
