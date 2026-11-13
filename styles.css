@@ -9857,9 +9857,9 @@ button:focus-visible, input:focus-visible {
 }
 .atom8-subnetmap-row .main small {
   overflow: hidden;
-  color: #94a3b8;
+  color: #7f8da3;
   font-family: var(--font-mono);
-  font-size: .7rem;
+  font-size: .68rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -9984,4 +9984,94 @@ button:focus-visible, input:focus-visible {
   .atom8-subnetmap-dialog > header {
     flex-direction: column;
   }
+}
+
+/* Subdivided rows: the visible chip is a real button that jumps to the child
+   card. It overlays an invisible, identical chip kept in the row so the row
+   layout (and chevron position) is unchanged. */
+.atom8-subnetmap-item.has-jump {
+  position: relative;
+}
+.atom8-subnetmap-row .use.is-jump-space {
+  visibility: hidden;
+}
+.atom8-subnetmap-jump {
+  position: absolute;
+  top: 16px;
+  right: 32px;
+  z-index: 2;
+  border: 0;
+  cursor: pointer;
+}
+.atom8-subnetmap-jump:hover {
+  background: rgba(56, 189, 248, .32);
+  color: #fff;
+}
+.atom8-subnetmap-jump:focus-visible {
+  outline: 2px solid #60a5fa;
+  outline-offset: 2px;
+}
+.atom8-subnetmap-dialog:focus {
+  outline: none;
+}
+.atom8-subnetmap-card:focus {
+  outline: none;
+}
+.atom8-subnetmap-card:focus-visible {
+  outline: 2px solid #60a5fa;
+  outline-offset: 3px;
+}
+
+/* Jump feedback: two staggered radar rings expand from the card edge and
+   fade, over a soft glow that settles. Every keyframe keeps the same four
+   shadow layers so they interpolate: base shadow, ring A, ring B, glow. The
+   short delay lets the smooth scroll arrive before the pulse starts. */
+.atom8-subnetmap-card.is-jump-target {
+  animation: atom8-subnetmap-radar 1.9s ease-out .3s both;
+}
+@keyframes atom8-subnetmap-radar {
+  0% {
+    box-shadow: 0 10px 28px rgba(0, 0, 0, .4), 0 0 0 0 rgba(56, 189, 248, 0), 0 0 0 0 rgba(56, 189, 248, 0), 0 0 0 0 rgba(56, 189, 248, 0);
+  }
+  4% {
+    box-shadow: 0 10px 28px rgba(0, 0, 0, .4), 0 0 0 0 rgba(56, 189, 248, .8), 0 0 0 0 rgba(56, 189, 248, 0), 0 0 26px 4px rgba(56, 189, 248, .5);
+  }
+  35% {
+    box-shadow: 0 10px 28px rgba(0, 0, 0, .4), 0 0 0 22px rgba(56, 189, 248, .28), 0 0 0 0 rgba(56, 189, 248, .65), 0 0 30px 6px rgba(56, 189, 248, .55);
+  }
+  65% {
+    box-shadow: 0 10px 28px rgba(0, 0, 0, .4), 0 0 0 40px rgba(56, 189, 248, 0), 0 0 0 20px rgba(56, 189, 248, .25), 0 0 26px 4px rgba(56, 189, 248, .4);
+  }
+  100% {
+    box-shadow: 0 10px 28px rgba(0, 0, 0, .4), 0 0 0 40px rgba(56, 189, 248, 0), 0 0 0 40px rgba(56, 189, 248, 0), 0 0 0 0 rgba(56, 189, 248, 0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .atom8-subnetmap-card.is-jump-target {
+    animation: none;
+    box-shadow: 0 10px 28px rgba(0, 0, 0, .4), 0 0 0 3px rgba(56, 189, 248, .5), 0 0 24px 4px rgba(56, 189, 248, .35);
+  }
+}
+
+/* Card header meta: the mask and usable-host count shared by every row. */
+.atom8-subnetmap-card > header small.atom8-subnetmap-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.atom8-subnetmap-meta span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  white-space: nowrap;
+}
+.atom8-subnetmap-meta span + span::before {
+  content: "·";
+  margin-right: 3px;
+  color: #64748b;
+}
+.atom8-subnetmap-meta code {
+  color: #cbd5e1;
+  font-family: var(--font-mono);
+  font-size: .72rem;
 }

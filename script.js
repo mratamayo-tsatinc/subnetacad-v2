@@ -829,7 +829,9 @@ document.addEventListener('keydown', (e) => {
         if (atom8Modal && atom8Modal.style.display === 'block') {
             closeAtom8Modal();
         }
-        document.querySelectorAll('.atom8-subnetmap-modal:not([hidden])').forEach(modal => { modal.hidden = true; });
+        document.querySelectorAll('.atom8-subnetmap-modal:not([hidden])').forEach(modal => {
+            atom8CloseSubnetMap(modal);
+        });
     }
 });
 
@@ -7943,7 +7945,6 @@ function atom8BuildSubnetMapModel(scenario, expanded) {
     const parentBlock = atom6Block(scenario.parent.networkInt, scenario.parent.cidr);
     const tables = [{
         id: 't0', depth: 0, kind: 'root', step: 0, chip: 'Start', title: 'Parent Network',
-        subtitle: parentBlock.availableIp + ' addresses · ' + parentBlock.mask.join('.'),
         rows: [{ index: 0, block: parentBlock, use: null, childId: null }],
         parentRow: null, parentTable: null
     }];
@@ -7970,6 +7971,7 @@ function atom8BuildSubnetMapModel(scenario, expanded) {
         // The pool block already has the required size: nothing to subdivide,
         // so the existing row is simply labelled with its LAN/WAN.
         if (blocks.length === 1 && first.networkInt === source.networkInt && first.cidr === source.cidr) {
+            if (uses[0]) uses[0].purpose = 'Allocated for ' + purpose;
             holder.row.use = uses[0] || null;
             return;
         }
@@ -7977,11 +7979,11 @@ function atom8BuildSubnetMapModel(scenario, expanded) {
         // drawn. An allocation that just labels an existing pool row (above)
         // is not a split, so it must not consume a number.
         step += 1;
+        uses.forEach(use => { if (use) use.purpose = 'Carved for ' + purpose; });
         const table = {
             id: 't' + tables.length, depth: holder.table.depth + 1, kind: 'split', step,
             chip: 'Split ' + step,
             title: source.network + '/' + source.cidr + ' → /' + first.cidr,
-            subtitle: purpose,
             rows: blocks.map((block, i) => ({ index: i, block, use: uses[i] || null, childId: null })),
             parentRow: holder.row, parentTable: holder.table
         };
@@ -7995,7 +7997,7 @@ function atom8BuildSubnetMapModel(scenario, expanded) {
         if (!lan) return;
         const use = { kind: 'lan', label: 'LAN ' + lan.number, name: lan.label, detail: lan.hosts + ' hosts required' };
         addStep(allocation.source, allocation.generated, [use],
-            'Carved for LAN ' + lan.number + ' · ' + lan.label + ' (' + lan.hosts + ' hosts → /' + allocation.assigned.cidr + ')');
+            'LAN ' + lan.number + ' · ' + lan.label + ' (' + lan.hosts + ' hosts → /' + allocation.assigned.cidr + ')');
     });
     if (solution.wan && solution.wan.source) {
         const wanById = Object.fromEntries(scenario.wans.map(wan => [wan.id, wan]));
@@ -8004,7 +8006,7 @@ function atom8BuildSubnetMapModel(scenario, expanded) {
             return { kind: 'wan', label: 'WAN ' + (wan ? wan.number : '?'), name: 'Point-to-point', detail: (wan ? wan.requiredIp : 2) + ' usable IPs required' };
         });
         addStep(solution.wan.source, solution.wan.generated, uses,
-            'Carved for ' + uses.length + ' WAN link' + (uses.length === 1 ? '' : 's') + ' (/' + (solution.wan.generated[0] ? solution.wan.generated[0].cidr : 30) + ' each)');
+            uses.length + ' WAN link' + (uses.length === 1 ? '' : 's') + ' (/' + (solution.wan.generated[0] ? solution.wan.generated[0].cidr : 30) + ' each)');
     }
 
     // Collapse long runs of untouched, unused subnets so a big split (for
@@ -8065,7 +8067,7 @@ function atom8BuildSubnetMapModel(scenario, expanded) {
 function atom8SubnetMapUseHtml(row, tableById) {
     if (row.use) {
         const icon = row.use.kind === 'lan' ? 'fa-network-wired' : 'fa-link';
-        return '<span class="atom8-subnetmap-use is-' + row.use.kind + '" title="' + atom6Escape(row.use.label + ' · ' + row.use.name + ' · ' + row.use.detail) + '">' +
+        return '<span class="atom8-subnetmap-use is-' + row.use.kind + '" title="' + atom6Escape(row.use.label + ' · ' + row.use.name + ' · ' + row.use.detail + (row.use.purpose ? '\n' + row.use.purpose : '')) + '">' +
             '<i class="fa-solid ' + icon + '" aria-hidden="true"></i><b>' + atom6Escape(row.use.label) + '</b><em>' + atom6Escape(row.use.name) + '</em></span>';
     }
     if (row.childId) {
@@ -8094,6 +8096,14 @@ function atom8BuildSubnetMap(ex, expanded) {
             '<text class="atom8-subnetmap-link-label" x="' + ((x1 + x2) / 2) + '" y="' + (((y1 + y2) / 2) - 9) + '" text-anchor="middle">' + label + '</text>';
     }).join('');
 
+    // A card is one block cut into equal pieces, so its mask and usable-host
+    // count are the same for every row. State them once, in the header.
+    const headerMeta = table => {
+        const block = table.rows[0].block;
+        const hosts = block.usableIp + ' usable host' + (block.usableIp === 1 ? '' : 's') + (table.kind === 'root' ? '' : ' each');
+        return '<small class="atom8-subnetmap-meta"><span><code>' + atom6Escape(block.mask.join('.')) + '</code></span><span>' + hosts + '</span></small>';
+    };
+
     const field = (label, value) => '<div><small>' + label + '</small><code>' + atom6Escape(value) + '</code></div>';
 
     const cards = model.tables.map(table => {
@@ -8104,19 +8114,22 @@ function atom8BuildSubnetMap(ex, expanded) {
             const block = row.block;
             const state = row.use ? 'is-' + row.use.kind : row.childId ? 'is-split' : 'is-free';
             const detailId = 'atom8Sm-' + row.key.replace(':', '-');
-            const hosts = block.usableIp + ' host' + (block.usableIp === 1 ? '' : 's');
             const detail = row.open ?
                 '<div class="atom8-subnetmap-detail" id="' + detailId + '" style="height:' + cfg.detailHeight + 'px">' +
                 field('First usable', block.first) + field('Last usable', block.last) + field('Broadcast', block.broadcast) + '</div>' : '';
-            return '<div class="atom8-subnetmap-item ' + state + (row.open ? ' is-open' : '') + '" style="height:' + row.h + 'px">' +
+            const childTable = row.childId ? tableById[row.childId] : null;
+            const jumpButton = childTable ?
+                '<button type="button" class="atom8-subnetmap-use is-split atom8-subnetmap-jump" data-target-table="' + childTable.id + '" aria-label="Subdivided into ' + atom6Escape(childTable.chip) + '. Jump to that card." title="Jump to ' + atom6Escape(childTable.chip) + '">' +
+                '<i class="fa-solid fa-code-branch" aria-hidden="true"></i><b>Subdivided</b><em>→ ' + atom6Escape(childTable.chip) + '</em></button>' : '';
+            return '<div class="atom8-subnetmap-item ' + state + (row.open ? ' is-open' : '') + (childTable ? ' has-jump' : '') + '" style="height:' + row.h + 'px">' +
                 '<button type="button" class="atom8-subnetmap-row" data-row-key="' + row.key + '" aria-expanded="' + row.open + '"' + (row.open ? ' aria-controls="' + detailId + '"' : '') + ' style="height:' + cfg.rowHeight + 'px">' +
                 '<span class="idx">' + row.index + '</span>' +
-                '<span class="main"><strong>' + block.network + '<i>/' + block.cidr + '</i></strong><small>' + block.mask.join('.') + ' · ' + hosts + '</small></span>' +
-                '<span class="use">' + atom8SubnetMapUseHtml(row, tableById) + '</span>' +
-                '<i class="fa-solid fa-chevron-down chev" aria-hidden="true"></i></button>' + detail + '</div>';
+                '<span class="main"><strong>' + block.network + '<i>/' + block.cidr + '</i></strong><small>' + block.mask.join('.') + '</small></span>' +
+                '<span class="use' + (childTable ? ' is-jump-space' : '') + '"' + (childTable ? ' aria-hidden="true"' : '') + '>' + atom8SubnetMapUseHtml(row, tableById) + '</span>' +
+                '<i class="fa-solid fa-chevron-down chev" aria-hidden="true"></i></button>' + jumpButton + detail + '</div>';
         }).join('');
-        return '<section class="atom8-subnetmap-card is-' + table.kind + '" style="left:' + table.x + 'px;top:' + table.y + 'px;width:' + cfg.tableWidth + 'px;height:' + table.height + 'px" aria-label="' + atom6Escape(table.chip + ': ' + table.title) + '">' +
-            '<header style="height:' + cfg.headerHeight + 'px"><span class="atom8-subnetmap-chip">' + atom6Escape(table.chip) + '</span><div><strong>' + atom6Escape(table.title) + '</strong><small>' + atom6Escape(table.subtitle) + '</small></div></header>' +
+        return '<section class="atom8-subnetmap-card is-' + table.kind + '" data-table-id="' + table.id + '" tabindex="-1" style="left:' + table.x + 'px;top:' + table.y + 'px;width:' + cfg.tableWidth + 'px;height:' + table.height + 'px" aria-label="' + atom6Escape(table.chip + ': ' + table.title) + '">' +
+            '<header style="height:' + cfg.headerHeight + 'px"><span class="atom8-subnetmap-chip">' + atom6Escape(table.chip) + '</span><div><strong>' + atom6Escape(table.title) + '</strong>' + headerMeta(table) + '</div></header>' +
             rows + '</section>';
     }).join('');
 
@@ -8144,10 +8157,10 @@ function atom8RenderSubnetMap(modal, ex) {
 }
 
 function atom8BuildSubnetMapModal(ex) {
-    return '<div class="atom8-subnetmap-modal" hidden><button type="button" class="atom8-subnetmap-backdrop" aria-label="Close subnet diagram"></button>' +
-        '<section class="atom8-subnetmap-dialog" role="dialog" aria-modal="true" aria-labelledby="atom8SubnetMapTitle">' +
+    return '<div class="atom8-subnetmap-modal" hidden><button type="button" class="atom8-subnetmap-backdrop" tabindex="-1" aria-label="Close subnet diagram"></button>' +
+        '<section class="atom8-subnetmap-dialog" role="dialog" aria-modal="true" aria-labelledby="atom8SubnetMapTitle" tabindex="-1">' +
         '<header><div><span>VLSM Allocation Map</span><h3 id="atom8SubnetMapTitle">Subnet Diagram · ' + ex.scenario.parent.network + '/' + ex.scenario.parent.cidr + '</h3>' +
-        '<p>Each card is one split of a subnet into smaller subnets, and a curved line leads from the subnet that was divided to the card created from it. Select a subnet to show its usable range and broadcast address.</p></div>' +
+        '<p>Each card is one split of a subnet into smaller subnets, and a curved line leads from the subnet that was divided to the card created from it. Select a subnet to show its usable range and broadcast address, or select Subdivided to jump to its split. Scroll or drag to pan; hold Ctrl or Cmd and scroll to zoom.</p></div>' +
         '<div class="atom8-subnetmap-tools"><div class="atom8-subnetmap-zoom" aria-label="Diagram zoom controls">' +
         '<button type="button" class="atom8-subnetmap-zoom-out" aria-label="Zoom out"><i class="fa-solid fa-minus" aria-hidden="true"></i></button>' +
         '<span class="atom8-subnetmap-zoom-label">100%</span>' +
@@ -8156,23 +8169,26 @@ function atom8BuildSubnetMapModal(ex) {
         '<button type="button" class="atom8-subnetmap-close" aria-label="Close subnet diagram"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></div></header>' +
         '<ul class="atom8-subnetmap-legend" aria-label="Legend"><li><span class="atom8-subnetmap-use is-lan"><b>LAN</b></span> serves a LAN</li><li><span class="atom8-subnetmap-use is-wan"><b>WAN</b></span> serves a WAN link</li>' +
         '<li><span class="atom8-subnetmap-use is-split"><b>Subdivided</b></span> split again into smaller subnets</li><li><span class="atom8-subnetmap-use is-free">Available</span> left in the pool</li></ul>' +
-        '<div class="atom8-subnetmap-viewport" tabindex="0" aria-label="Subnet diagram. Drag or scroll to pan."></div></section></div>';
+        '<div class="atom8-subnetmap-viewport" tabindex="0" aria-label="Subnet diagram. Drag or scroll to pan. Hold Ctrl or Command and scroll to zoom."></div></section></div>';
 }
 
-function atom8ApplySubnetMapZoom(modal, zoom) {
+function atom8ApplySubnetMapZoom(modal, zoom, focus) {
     const plane = modal?.querySelector('.atom8-subnetmap-plane');
     const canvas = modal?.querySelector('.atom8-subnetmap-canvas');
     if (!plane || !canvas) return;
     const cfg = ATOM8_SUBNET_MAP;
     const viewport = modal.querySelector('.atom8-subnetmap-viewport');
     const prevZoom = Number(plane.dataset.zoom) || 1;
-    const z = Math.round(Math.min(cfg.maxZoom, Math.max(cfg.minZoom, zoom)) * 100) / 100;
+    const z = Math.round(Math.min(cfg.maxZoom, Math.max(cfg.minZoom, zoom)) * 1000) / 1000;
 
-    // Remember which diagram point sits at the centre of the viewport so the
-    // view stays on it after the zoom, instead of jumping toward the corner.
+    // Remember which diagram point sits under the focus (the mouse pointer
+    // for wheel zoom, otherwise the viewport centre) so the view stays on it
+    // after the zoom, instead of jumping toward the corner.
+    const fx = focus ? focus.x : (viewport ? viewport.clientWidth / 2 : 0);
+    const fy = focus ? focus.y : (viewport ? viewport.clientHeight / 2 : 0);
     const anchor = viewport ? {
-        x: (viewport.scrollLeft + viewport.clientWidth / 2) / prevZoom,
-        y: (viewport.scrollTop + viewport.clientHeight / 2) / prevZoom
+        x: (viewport.scrollLeft + fx) / prevZoom,
+        y: (viewport.scrollTop + fy) / prevZoom
     } : null;
 
     plane.style.width = Math.ceil(Number(plane.dataset.baseWidth) * z) + 'px';
@@ -8183,8 +8199,8 @@ function atom8ApplySubnetMapZoom(modal, zoom) {
     if (label) label.textContent = Math.round(z * 100) + '%';
 
     if (anchor && z !== prevZoom) {
-        viewport.scrollLeft = Math.max(0, anchor.x * z - viewport.clientWidth / 2);
-        viewport.scrollTop = Math.max(0, anchor.y * z - viewport.clientHeight / 2);
+        viewport.scrollLeft = Math.max(0, anchor.x * z - fx);
+        viewport.scrollTop = Math.max(0, anchor.y * z - fy);
     }
 }
 
@@ -8192,8 +8208,220 @@ function atom8FitSubnetMap(modal) {
     const viewport = modal?.querySelector('.atom8-subnetmap-viewport');
     const plane = modal?.querySelector('.atom8-subnetmap-plane');
     if (!viewport || !plane) return;
-    const available = Math.max(200, viewport.clientWidth - 24);
-    atom8ApplySubnetMapZoom(modal, Math.min(1, available / Number(plane.dataset.baseWidth)));
+    const availableWidth = Math.max(200, viewport.clientWidth - 24);
+    const availableHeight = Math.max(200, viewport.clientHeight - 24);
+    atom8ApplySubnetMapZoom(modal, Math.min(
+        1,
+        availableWidth / Number(plane.dataset.baseWidth),
+        availableHeight / Number(plane.dataset.baseHeight)
+    ));
+    viewport.scrollLeft = 0;
+    viewport.scrollTop = 0;
+}
+
+// Closes the diagram, saves its view and returns focus to the button that
+// opened it (or, if the panel re-rendered meanwhile, the current panel's
+// Subnet Diagram button).
+function atom8CloseSubnetMap(modal) {
+    if (!modal || modal.hidden) return;
+    atom8SaveSubnetMapView(modal);
+    modal.hidden = true;
+    const opener = modal._atom8Opener;
+    modal._atom8Opener = null;
+    const target = opener && opener.isConnected
+        ? opener
+        : document.querySelector(atom8CurrentContainerSelector() + ' .atom8-subnetmap-open');
+    target?.focus();
+}
+
+// Scrolls a split card into view (centred, or top-aligned when taller than
+// the viewport), moves focus to it and briefly highlights it.
+function atom8JumpToSubnetMapCard(modal, tableId) {
+    const viewport = modal?.querySelector('.atom8-subnetmap-viewport');
+    const plane = viewport?.querySelector('.atom8-subnetmap-plane');
+    const card = viewport?.querySelector('.atom8-subnetmap-card[data-table-id="' + tableId + '"]');
+    if (!viewport || !plane || !card) return;
+    const zoom = Number(plane.dataset.zoom) || 1;
+    const x = parseFloat(card.style.left) || 0;
+    const y = parseFloat(card.style.top) || 0;
+    const w = parseFloat(card.style.width) || ATOM8_SUBNET_MAP.tableWidth;
+    const h = parseFloat(card.style.height) || 0;
+    const left = (x + w / 2) * zoom - viewport.clientWidth / 2;
+    const top = h * zoom > viewport.clientHeight - 32
+        ? y * zoom - 16
+        : (y + h / 2) * zoom - viewport.clientHeight / 2;
+    const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    viewport.scrollTo({ left: Math.max(0, left), top: Math.max(0, top), behavior: reduceMotion ? 'auto' : 'smooth' });
+    card.focus({ preventScroll: true });
+    viewport.querySelectorAll('.atom8-subnetmap-card.is-jump-target').forEach(el => el.classList.remove('is-jump-target'));
+    // Remove, force a reflow, then add, so the radar pulse restarts even when
+    // the same card is targeted twice in a row.
+    card.classList.remove('is-jump-target');
+    void card.offsetWidth;
+    card.classList.add('is-jump-target');
+    clearTimeout(modal._atom8JumpTimer);
+    modal._atom8JumpTimer = setTimeout(() => card.classList.remove('is-jump-target'), 2400);
+}
+
+// Focus trap: while the diagram is open, Tab / Shift+Tab cycle inside the
+// dialog instead of reaching the page behind it.
+document.addEventListener('keydown', event => {
+    if (event.key !== 'Tab') return;
+    const modal = document.querySelector('.atom8-subnetmap-modal:not([hidden])');
+    const dialog = modal?.querySelector('.atom8-subnetmap-dialog');
+    if (!dialog) return;
+    const focusable = Array.from(dialog.querySelectorAll('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'))
+        .filter(el => el.getClientRects().length > 0);
+    if (!focusable.length) { event.preventDefault(); dialog.focus(); return; }
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = document.activeElement;
+    if (!dialog.contains(active)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+    } else if (event.shiftKey && active === first) {
+        event.preventDefault();
+        last.focus();
+    } else if (!event.shiftKey && active === last) {
+        event.preventDefault();
+        first.focus();
+    }
+});
+
+// Remembers how each student last zoomed the diagram, per user and per
+// browser (localStorage is browser-local, and every entry is keyed by the
+// logged-in email, so students sharing a PC never inherit each other's view).
+// "fit" (the default, and what the Fit button chooses) re-fits each diagram
+// to the window, so a stale fit zoom is never applied to a differently sized
+// diagram; "manual" keeps the exact zoom chosen with +/-, or the wheel. This
+// is only the fallback for diagrams the student has not viewed yet; each
+// diagram's own saved view (below) takes priority.
+const ATOM8_SUBNET_MAP_ZOOM_KEY = 'subnetacadSubnetMapZoomByUser';
+let atom8SubnetMapZoomPrefs = null;
+let atom8SubnetMapZoomSaveTimer = null;
+
+function atom8SubnetMapUserId() {
+    return String(currentUser || 'anonymous').trim().toLowerCase();
+}
+
+function atom8SubnetMapZoomPrefsStore() {
+    if (!atom8SubnetMapZoomPrefs) {
+        try {
+            const saved = JSON.parse(localStorage.getItem(ATOM8_SUBNET_MAP_ZOOM_KEY));
+            atom8SubnetMapZoomPrefs = saved && typeof saved === 'object' && !Array.isArray(saved) ? saved : {};
+        } catch (err) { atom8SubnetMapZoomPrefs = {}; }
+    }
+    return atom8SubnetMapZoomPrefs;
+}
+
+function atom8SubnetMapZoomPrefFor() {
+    const saved = atom8SubnetMapZoomPrefsStore()[atom8SubnetMapUserId()];
+    return saved && saved.mode === 'manual' && Number.isFinite(saved.zoom)
+        ? { mode: 'manual', zoom: saved.zoom }
+        : { mode: 'fit' };
+}
+
+function atom8RememberSubnetMapZoom(mode, zoom, modal) {
+    atom8SubnetMapZoomPrefsStore()[atom8SubnetMapUserId()] = mode === 'manual' ? { mode: 'manual', zoom } : { mode: 'fit' };
+    if (modal) {
+        modal._atom8ZoomMode = mode;
+        atom8ScheduleSubnetMapViewSave(modal);
+    }
+    // Debounced: wheel zoom fires many events per second.
+    clearTimeout(atom8SubnetMapZoomSaveTimer);
+    atom8SubnetMapZoomSaveTimer = setTimeout(() => {
+        try { localStorage.setItem(ATOM8_SUBNET_MAP_ZOOM_KEY, JSON.stringify(atom8SubnetMapZoomPrefs)); }
+        catch (err) { /* private mode or quota: the in-memory preference still applies */ }
+    }, 250);
+}
+
+// Per-diagram view memory: zoom, pan position and expanded subnets are saved
+// for each student + exercise item + parent network, so reopening the same
+// diagram returns to where the student left off. Expanded rows are part of it
+// because they change the diagram's height, which the saved pan depends on.
+// A different seed (different parent network) never inherits a stale view.
+const ATOM8_SUBNET_MAP_VIEWS_KEY = 'subnetacadSubnetMapViews';
+const ATOM8_SUBNET_MAP_VIEWS_MAX = 60;
+let atom8SubnetMapViewSaveTimer = null;
+
+function atom8SubnetMapViewKey(ex) {
+    const parent = ex.scenario.parent;
+    return [atom8SubnetMapUserId(), activeDeploymentExerciseKey, parent.network + '/' + parent.cidr].join('|');
+}
+
+function atom8ReadSubnetMapViews() {
+    try {
+        const views = JSON.parse(localStorage.getItem(ATOM8_SUBNET_MAP_VIEWS_KEY));
+        return views && typeof views === 'object' && !Array.isArray(views) ? views : {};
+    } catch (err) { return {}; }
+}
+
+function atom8LoadSubnetMapView(key) {
+    const view = atom8ReadSubnetMapViews()[key];
+    return view && typeof view === 'object' ? view : null;
+}
+
+function atom8SaveSubnetMapView(modal) {
+    // A hidden modal reports scroll 0, so never save from one.
+    if (!modal || modal.hidden || !modal._atom8ViewKey) return;
+    const viewport = modal.querySelector('.atom8-subnetmap-viewport');
+    const plane = viewport?.querySelector('.atom8-subnetmap-plane');
+    if (!plane) return;
+    const views = atom8ReadSubnetMapViews();
+    views[modal._atom8ViewKey] = {
+        mode: modal._atom8ZoomMode === 'fit' ? 'fit' : 'manual',
+        zoom: Number(plane.dataset.zoom) || 1,
+        left: Math.round(viewport.scrollLeft),
+        top: Math.round(viewport.scrollTop),
+        open: Array.from(modal._atom8OpenRows || []),
+        t: Date.now()
+    };
+    // Cap per user, so one student on a shared PC cannot evict another's views.
+    const prefix = atom8SubnetMapUserId() + '|';
+    const keys = Object.keys(views).filter(key => key.startsWith(prefix));
+    if (keys.length > ATOM8_SUBNET_MAP_VIEWS_MAX) {
+        keys.sort((a, b) => (views[a].t || 0) - (views[b].t || 0))
+            .slice(0, keys.length - ATOM8_SUBNET_MAP_VIEWS_MAX)
+            .forEach(key => { delete views[key]; });
+    }
+    try { localStorage.setItem(ATOM8_SUBNET_MAP_VIEWS_KEY, JSON.stringify(views)); }
+    catch (err) { /* storage unavailable: the view just won't persist */ }
+}
+
+function atom8ScheduleSubnetMapViewSave(modal) {
+    clearTimeout(atom8SubnetMapViewSaveTimer);
+    atom8SubnetMapViewSaveTimer = setTimeout(() => atom8SaveSubnetMapView(modal), 250);
+}
+
+function atom8RestoreSubnetMapView(modal, saved) {
+    const viewport = modal.querySelector('.atom8-subnetmap-viewport');
+    if (!viewport) return;
+    if (saved && saved.mode === 'manual' && Number.isFinite(saved.zoom)) {
+        atom8ApplySubnetMapZoom(modal, saved.zoom);
+        modal._atom8ZoomMode = 'manual';
+    } else if (saved && saved.mode === 'fit') {
+        atom8FitSubnetMap(modal);
+        modal._atom8ZoomMode = 'fit';
+    } else {
+        // Never viewed: use the student's most recent zoom preference.
+        atom8ApplySavedSubnetMapZoom(modal);
+        modal._atom8ZoomMode = atom8SubnetMapZoomPrefFor().mode;
+    }
+    viewport.scrollLeft = Number.isFinite(saved?.left) ? saved.left : 0;
+    viewport.scrollTop = Number.isFinite(saved?.top) ? saved.top : 0;
+}
+
+// Scroll events do not bubble, so listen in the capture phase.
+document.addEventListener('scroll', event => {
+    const viewport = event.target;
+    if (!viewport?.classList?.contains('atom8-subnetmap-viewport')) return;
+    atom8ScheduleSubnetMapViewSave(viewport.closest('.atom8-subnetmap-modal'));
+}, true);
+
+function atom8ApplySavedSubnetMapZoom(modal) {
+    const pref = atom8SubnetMapZoomPrefFor();
+    if (pref.mode === 'manual') atom8ApplySubnetMapZoom(modal, pref.zoom);
+    else atom8FitSubnetMap(modal);
 }
 
 // Click-and-drag panning for the subnet diagram. Mouse and pen only: touch
@@ -8261,6 +8489,36 @@ document.addEventListener('click', event => {
     event.stopPropagation();
     event.preventDefault();
 }, true);
+
+// Ctrl/Cmd + mouse-wheel (or trackpad pinch) zoom over the diagram, centred
+// on the pointer. Must be a non-passive listener so the browser does not
+// zoom the whole page. Plain wheel scrolling is left alone so it pans, as do
+// drag, the scrollbars and the arrow keys.
+document.addEventListener('wheel', event => {
+    const viewport = event.target.closest?.('.atom8-subnetmap-viewport');
+    if (!viewport || atom8SubnetMapOnScrollbar(viewport, event)) return;
+    const modal = viewport.closest('.atom8-subnetmap-modal');
+    const plane = viewport.querySelector('.atom8-subnetmap-plane');
+    if (!modal || !plane) return;
+    // Plain wheel / two-finger scrolling pans the diagram natively. Only
+    // Ctrl/Cmd + wheel (and trackpad pinch, which browsers report as
+    // Ctrl + wheel) zooms.
+    if (!(event.ctrlKey || event.metaKey)) return;
+    event.preventDefault();
+    let delta = event.deltaY;
+    if (event.deltaMode === 1) delta *= 16;        // lines -> pixels
+    else if (event.deltaMode === 2) delta *= 400;  // pages -> pixels
+    delta = Math.max(-240, Math.min(240, delta));
+    if (!delta) return;
+    const rect = viewport.getBoundingClientRect();
+    const focus = {
+        x: event.clientX - rect.left - viewport.clientLeft,
+        y: event.clientY - rect.top - viewport.clientTop
+    };
+    const current = Number(plane.dataset.zoom) || 1;
+    atom8ApplySubnetMapZoom(modal, current * Math.exp(-delta * 0.0015), focus);
+    atom8RememberSubnetMapZoom('manual', Number(plane.dataset.zoom), modal);
+}, { passive: false });
 
 function atom8SetWorkspaceMode(mode) {
     if (!['configure', 'self-test', 'official'].includes(mode) || atom8PingState.running || atom8OfficialRunAllActive || atom8SelfRunAllActive) return;
@@ -8782,13 +9040,19 @@ function atom8HandleDeviceClick(event) {
         const modal = document.querySelector(atom8CurrentContainerSelector() + ' .atom8-subnetmap-modal');
         const viewport = modal?.querySelector('.atom8-subnetmap-viewport');
         if (!ex || !viewport || !atom8SubnetDiagramEnabled(ex)) return;
-        modal._atom8OpenRows = new Set();
+        modal._atom8ViewKey = atom8SubnetMapViewKey(ex);
+        const savedView = atom8LoadSubnetMapView(modal._atom8ViewKey);
+        modal._atom8OpenRows = new Set(Array.isArray(savedView?.open) ? savedView.open : []);
         viewport.innerHTML = atom8BuildSubnetMap(ex, modal._atom8OpenRows);
+        modal._atom8Opener = event.target.closest('.atom8-subnetmap-open');
         modal.hidden = false;
-        atom8FitSubnetMap(modal);
-        viewport.scrollLeft = 0;
-        viewport.scrollTop = 0;
+        atom8RestoreSubnetMapView(modal, savedView);
         modal.querySelector('.atom8-subnetmap-close')?.focus();
+        return;
+    }
+    const subnetMapJump = event.target.closest('.atom8-subnetmap-jump');
+    if (subnetMapJump) {
+        atom8JumpToSubnetMapCard(subnetMapJump.closest('.atom8-subnetmap-modal'), subnetMapJump.dataset.targetTable);
         return;
     }
     const subnetMapRow = event.target.closest('.atom8-subnetmap-row');
@@ -8800,12 +9064,13 @@ function atom8HandleDeviceClick(event) {
         const open = modal._atom8OpenRows || (modal._atom8OpenRows = new Set());
         if (open.has(key)) open.delete(key); else open.add(key);
         atom8RenderSubnetMap(modal, ex);
+        atom8ScheduleSubnetMapViewSave(modal);
         modal.querySelector('.atom8-subnetmap-row[data-row-key="' + key + '"]')?.focus({ preventScroll: true });
         return;
     }
     if (event.target.closest('.atom8-subnetmap-close, .atom8-subnetmap-backdrop')) {
         const modal = event.target.closest('.atom8-subnetmap-modal');
-        if (modal) modal.hidden = true;
+        if (modal) atom8CloseSubnetMap(modal);
         return;
     }
     const subnetMapZoomButton = event.target.closest('.atom8-subnetmap-zoom-in, .atom8-subnetmap-zoom-out, .atom8-subnetmap-zoom-fit');
@@ -8815,9 +9080,11 @@ function atom8HandleDeviceClick(event) {
         if (!plane) return;
         if (subnetMapZoomButton.classList.contains('atom8-subnetmap-zoom-fit')) {
             atom8FitSubnetMap(modal);
+            atom8RememberSubnetMapZoom('fit', undefined, modal);
         } else {
             const step = ATOM8_SUBNET_MAP.zoomStep * (subnetMapZoomButton.classList.contains('atom8-subnetmap-zoom-in') ? 1 : -1);
             atom8ApplySubnetMapZoom(modal, (Number(plane.dataset.zoom) || 1) + step);
+            atom8RememberSubnetMapZoom('manual', Number(plane.dataset.zoom), modal);
         }
         return;
     }
