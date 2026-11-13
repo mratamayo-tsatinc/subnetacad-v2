@@ -405,7 +405,13 @@ const QUESTION_CONFIG = {
         },
         subnetDiagram: {
             enabled: true,
-            showInExam: false
+            showInExam: false,
+            // Adds an "Answer key | My answer" switch to the diagram. "My
+            // answer" redraws the diagram from the subnets the student has
+            // configured on the router interfaces. defaultMode is only used
+            // until a student picks a mode (their choice is remembered).
+            studentAnswerMode: true,
+            defaultMode: 'key'
         },
         minLans: 2,
         maxLans: 6,
@@ -7934,6 +7940,7 @@ const ATOM8_SUBNET_MAP = {
     gapHeight: 34,
     collapseMinRows: 10,
     collapseRunLength: 4,
+    issueLineHeight: 24,
     minZoom: 0.4,
     maxZoom: 1.4,
     zoomStep: 0.1
@@ -8009,6 +8016,13 @@ function atom8BuildSubnetMapModel(scenario, expanded) {
             uses.length + ' WAN link' + (uses.length === 1 ? '' : 's') + ' (/' + (solution.wan.generated[0] ? solution.wan.generated[0].cidr : 30) + ' each)');
     }
 
+    return atom8LayoutSubnetMapTables(tables, expanded);
+}
+
+// Shared by the answer-key and student-answer models: collapses long runs of
+// unused subnets, sizes every card and positions the columns.
+function atom8LayoutSubnetMapTables(tables, expanded) {
+    const cfg = ATOM8_SUBNET_MAP;
     // Collapse long runs of untouched, unused subnets so a big split (for
     // example a /24 into /28s) stays readable. Used and subdivided rows are
     // never collapsed, so every connector start stays visible.
@@ -8036,7 +8050,9 @@ function atom8BuildSubnetMapModel(scenario, expanded) {
             } else {
                 item.key = table.id + ':' + item.index;
                 item.open = !!(expanded && expanded.has(item.key));
-                item.h = cfg.rowHeight + (item.open ? cfg.detailHeight : 0);
+                // Student-answer rows can carry issue lines, which need room.
+                item.detailH = cfg.detailHeight + ((item.use && item.use.issues && item.use.issues.length) || 0) * cfg.issueLineHeight;
+                item.h = cfg.rowHeight + (item.open ? item.detailH : 0);
             }
             bodyHeight += item.h;
         });
@@ -8064,10 +8080,124 @@ function atom8BuildSubnetMapModel(scenario, expanded) {
     return { tables, width, height };
 }
 
+// Builds the diagram from what the student configured on the router
+// interfaces instead of from the reference solution. The result has the same
+// shape as the answer-key model (cards of equal splits) so the renderer, zoom,
+// pan and jump code are shared. Only subnet allocation is shown here; the
+// Official Test remains the only thing that scores.
+function atom8BuildStudentSubnetMapModel(ex, expanded) {
+    const scenario = ex.scenario;
+    const state = ex.atom8State;
+    const parent = atom6Block(scenario.parent.networkInt, scenario.parent.cidr);
+    const parentEnd = parent.networkInt + parent.availableIp - 1;
+    const wanCidr = Number(QUESTION_CONFIG.atom8.wanCidr);
+    const blockText = block => block.network + '/' + block.cidr;
+    const targets = [
+        ...scenario.lans.map(lan => ({ kind: 'lan', id: lan.id, label: 'LAN ' + lan.number, name: lan.label, detail: lan.hosts + ' hosts required', hosts: lan.hosts })),
+        ...scenario.wans.map(wan => ({ kind: 'wan', id: wan.id, label: 'WAN ' + wan.number, name: 'Point-to-point', detail: (wan.requiredIp || 2) + ' usable IPs required' }))
+    ];
+
+    const unplaced = [];
+    const candidates = [];
+    targets.forEach((target, order) => {
+        const records = [];
+        ex.model.routers.forEach(router => {
+            router.ports.filter(port => port.targetId === target.id).forEach(port => {
+                const input = state.routers[router.id]?.ports[port.id] || {};
+                records.push({ router, block: atom8ConfiguredBlock(input.ip, input.mask), touched: !!(input.ip || input.mask) });
+            });
+        });
+        const configured = records.filter(record => record.block);
+        if (!configured.length) {
+            unplaced.push({ label: target.label, pending: !records.some(record => record.touched), text: records.some(record => record.touched) ? 'invalid address or mask' : 'not configured yet' });
+            return;
+        }
+        const block = configured[0].block;
+        if (block.networkInt < parent.networkInt || block.networkInt + block.availableIp - 1 > parentEnd) {
+            unplaced.push({ label: target.label, pending: false, text: 'outside ' + blockText(parent) + ' (uses ' + blockText(block) + ')' });
+            return;
+        }
+        const issues = [];
+        if (target.kind === 'lan' && block.usableIp < target.hosts) {
+            issues.push('Too small: ' + block.usableIp + ' usable hosts, needs ' + target.hosts);
+        }
+        if (target.kind === 'wan') {
+            if (Number.isFinite(wanCidr) && block.cidr !== wanCidr) issues.push('WAN links must use /' + wanCidr);
+            if (configured.length < records.length) issues.push('Other end not configured yet');
+        }
+        const disagree = configured.find(record => record.block.network !== block.network || record.block.cidr !== block.cidr);
+        if (disagree) {
+            issues.push('Interfaces disagree: R' + configured[0].router.number + ' ' + blockText(block) + ' vs R' + disagree.router.number + ' ' + blockText(disagree.block));
+        }
+        if (records.some(record => record.touched && !record.block)) issues.push('An interface has an invalid address or mask');
+        candidates.push({ ...target, order, block, issues });
+    });
+
+    // Place larger blocks first. Aligned CIDR blocks either nest or are
+    // disjoint, so any later block that overlaps a placed one sits inside it:
+    // it is reported on the placed block's row instead of being drawn twice.
+    candidates.sort((a, b) => a.block.cidr - b.block.cidr || a.block.networkInt - b.block.networkInt || a.order - b.order);
+    const placed = [];
+    candidates.forEach(item => {
+        const covering = placed.find(other => atom8BlocksOverlap(other.block, item.block));
+        if (!covering) { placed.push(item); return; }
+        covering.issues.push('Overlaps ' + item.label + ' · ' + blockText(item.block));
+        unplaced.push({ label: item.label, pending: false, text: 'overlaps ' + covering.label + ' (' + blockText(item.block) + ' inside ' + blockText(covering.block) + ')' });
+    });
+
+    const tables = [{
+        id: 't0', depth: 0, kind: 'root', step: 0, chip: 'Start', title: 'Parent Network',
+        rows: [{ index: 0, block: parent, use: null, childId: null }],
+        parentRow: null, parentTable: null
+    }];
+    let step = 0;
+    const expand = (table, row, items) => {
+        if (!items.length) return;
+        const source = row.block;
+        const exact = items.find(item => item.block.networkInt === source.networkInt && item.block.cidr === source.cidr);
+        if (exact) {
+            const b = exact.block;
+            row.use = {
+                kind: exact.kind, label: exact.label, name: exact.name, detail: exact.detail, issues: exact.issues,
+                purpose: 'Your allocation: ' + blockText(b) + ' · ' + b.usableIp + ' usable host' + (b.usableIp === 1 ? '' : 's')
+            };
+            return;
+        }
+        // Split into blocks the size of the largest allocation inside this
+        // block (capped so a tiny block never explodes into thousands of rows).
+        const childCidr = Math.min(Math.min(...items.map(item => item.block.cidr)), source.cidr + 8);
+        const size = atom6BlockSize(childCidr);
+        step += 1;
+        const child = {
+            id: 't' + tables.length, depth: table.depth + 1, kind: 'split', step, chip: 'Split ' + step,
+            title: blockText(source) + ' → /' + childCidr,
+            rows: Array.from({ length: Math.pow(2, childCidr - source.cidr) }, (_, i) => ({ index: i, block: atom6Block(source.networkInt + i * size, childCidr), use: null, childId: null })),
+            parentRow: row, parentTable: table
+        };
+        row.childId = child.id;
+        tables.push(child);
+        child.rows.forEach(childRow => expand(child, childRow, items.filter(item =>
+            item.block.networkInt >= childRow.block.networkInt && item.block.networkInt < childRow.block.networkInt + childRow.block.availableIp)));
+    };
+    expand(tables[0], tables[0].rows[0], placed);
+
+    const model = atom8LayoutSubnetMapTables(tables, expanded);
+    model.summary = {
+        total: targets.length,
+        placed: placed.length,
+        attention: placed.filter(item => item.issues.length).length,
+        unplaced
+    };
+    return model;
+}
+
 function atom8SubnetMapUseHtml(row, tableById) {
     if (row.use) {
         const icon = row.use.kind === 'lan' ? 'fa-network-wired' : 'fa-link';
-        return '<span class="atom8-subnetmap-use is-' + row.use.kind + '" title="' + atom6Escape(row.use.label + ' · ' + row.use.name + ' · ' + row.use.detail + (row.use.purpose ? '\n' + row.use.purpose : '')) + '">' +
+        const issues = row.use.issues || [];
+        const tip = [row.use.label + ' · ' + row.use.name + ' · ' + row.use.detail, row.use.purpose].concat(issues).filter(Boolean).join('\n');
+        const flag = issues.length ? '<i class="fa-solid fa-triangle-exclamation atom8-subnetmap-use-flag" aria-hidden="true"></i><span class="atom8-subnetmap-sr">Needs attention. </span>' : '';
+        return '<span class="atom8-subnetmap-use is-' + row.use.kind + '" title="' + atom6Escape(tip) + '">' + flag +
             '<i class="fa-solid ' + icon + '" aria-hidden="true"></i><b>' + atom6Escape(row.use.label) + '</b><em>' + atom6Escape(row.use.name) + '</em></span>';
     }
     if (row.childId) {
@@ -8077,9 +8207,12 @@ function atom8SubnetMapUseHtml(row, tableById) {
     return '<span class="atom8-subnetmap-use is-free">Available</span>';
 }
 
-function atom8BuildSubnetMap(ex, expanded) {
+function atom8BuildSubnetMap(ex, expanded, mode, out) {
     const cfg = ATOM8_SUBNET_MAP;
-    const model = atom8BuildSubnetMapModel(ex.scenario, expanded);
+    const model = mode === 'student'
+        ? atom8BuildStudentSubnetMapModel(ex, expanded)
+        : atom8BuildSubnetMapModel(ex.scenario, expanded);
+    if (out) out.summary = model.summary || null;
     const tableById = Object.fromEntries(model.tables.map(table => [table.id, table]));
 
     const links = model.tables.filter(table => table.parentRow).map(table => {
@@ -8115,13 +8248,15 @@ function atom8BuildSubnetMap(ex, expanded) {
             const state = row.use ? 'is-' + row.use.kind : row.childId ? 'is-split' : 'is-free';
             const detailId = 'atom8Sm-' + row.key.replace(':', '-');
             const detail = row.open ?
-                '<div class="atom8-subnetmap-detail" id="' + detailId + '" style="height:' + cfg.detailHeight + 'px">' +
-                field('First usable', block.first) + field('Last usable', block.last) + field('Broadcast', block.broadcast) + '</div>' : '';
+                '<div class="atom8-subnetmap-detail" id="' + detailId + '" style="height:' + row.detailH + 'px">' +
+                field('First usable', block.first) + field('Last usable', block.last) + field('Broadcast', block.broadcast) +
+                ((row.use && row.use.issues) || []).map(text => '<div class="atom8-subnetmap-issue" title="' + atom6Escape(text) + '"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i><span>' + atom6Escape(text) + '</span></div>').join('') +
+                '</div>' : '';
             const childTable = row.childId ? tableById[row.childId] : null;
             const jumpButton = childTable ?
                 '<button type="button" class="atom8-subnetmap-use is-split atom8-subnetmap-jump" data-target-table="' + childTable.id + '" aria-label="Subdivided into ' + atom6Escape(childTable.chip) + '. Jump to that card." title="Jump to ' + atom6Escape(childTable.chip) + '">' +
                 '<i class="fa-solid fa-code-branch" aria-hidden="true"></i><b>Subdivided</b><em>→ ' + atom6Escape(childTable.chip) + '</em></button>' : '';
-            return '<div class="atom8-subnetmap-item ' + state + (row.open ? ' is-open' : '') + (childTable ? ' has-jump' : '') + '" style="height:' + row.h + 'px">' +
+            return '<div class="atom8-subnetmap-item ' + state + (row.open ? ' is-open' : '') + (childTable ? ' has-jump' : '') + (row.use && row.use.issues && row.use.issues.length ? ' has-issue' : '') + '" style="height:' + row.h + 'px">' +
                 '<button type="button" class="atom8-subnetmap-row" data-row-key="' + row.key + '" aria-expanded="' + row.open + '"' + (row.open ? ' aria-controls="' + detailId + '"' : '') + ' style="height:' + cfg.rowHeight + 'px">' +
                 '<span class="idx">' + row.index + '</span>' +
                 '<span class="main"><strong>' + block.network + '<i>/' + block.cidr + '</i></strong><small>' + block.mask.join('.') + '</small></span>' +
@@ -8147,7 +8282,7 @@ function atom8RenderSubnetMap(modal, ex) {
     const zoom = prevPlane ? Number(prevPlane.dataset.zoom) || 1 : null;
     const left = viewport.scrollLeft;
     const top = viewport.scrollTop;
-    viewport.innerHTML = atom8BuildSubnetMap(ex, modal._atom8OpenRows);
+    atom8FillSubnetMap(modal, ex);
     if (zoom) {
         viewport.querySelector('.atom8-subnetmap-plane').dataset.zoom = String(zoom);
         atom8ApplySubnetMapZoom(modal, zoom);
@@ -8157,9 +8292,14 @@ function atom8RenderSubnetMap(modal, ex) {
 }
 
 function atom8BuildSubnetMapModal(ex) {
+    const modebar = atom8SubnetMapModes(ex).length > 1 ?
+        '<div class="atom8-subnetmap-modebar"><div class="atom8-subnetmap-modes" role="group" aria-label="Diagram basis">' +
+        '<button type="button" class="atom8-subnetmap-mode-btn" data-mode="key" aria-pressed="true" title="The reference VLSM plan"><i class="fa-solid fa-key" aria-hidden="true"></i><span>Answer key</span></button>' +
+        '<button type="button" class="atom8-subnetmap-mode-btn" data-mode="student" aria-pressed="false" title="The subnets you configured on the routers"><i class="fa-solid fa-user-pen" aria-hidden="true"></i><span>My answer</span></button></div>' +
+        '<div class="atom8-subnetmap-status" role="status" aria-live="polite" hidden></div></div>' : '';
     return '<div class="atom8-subnetmap-modal" hidden><button type="button" class="atom8-subnetmap-backdrop" tabindex="-1" aria-label="Close subnet diagram"></button>' +
         '<section class="atom8-subnetmap-dialog" role="dialog" aria-modal="true" aria-labelledby="atom8SubnetMapTitle" tabindex="-1">' +
-        '<header><div><span>VLSM Allocation Map</span><h3 id="atom8SubnetMapTitle">Subnet Diagram · ' + ex.scenario.parent.network + '/' + ex.scenario.parent.cidr + '</h3>' +
+        '<header><div><span class="atom8-subnetmap-eyebrow">VLSM Allocation Map</span><h3 id="atom8SubnetMapTitle">Subnet Diagram · ' + ex.scenario.parent.network + '/' + ex.scenario.parent.cidr + '</h3>' +
         '<p>Each card is one split of a subnet into smaller subnets, and a curved line leads from the subnet that was divided to the card created from it. Select a subnet to show its usable range and broadcast address, or select Subdivided to jump to its split. Scroll or drag to pan; hold Ctrl or Cmd and scroll to zoom.</p></div>' +
         '<div class="atom8-subnetmap-tools"><div class="atom8-subnetmap-zoom" aria-label="Diagram zoom controls">' +
         '<button type="button" class="atom8-subnetmap-zoom-out" aria-label="Zoom out"><i class="fa-solid fa-minus" aria-hidden="true"></i></button>' +
@@ -8167,8 +8307,10 @@ function atom8BuildSubnetMapModal(ex) {
         '<button type="button" class="atom8-subnetmap-zoom-in" aria-label="Zoom in"><i class="fa-solid fa-plus" aria-hidden="true"></i></button>' +
         '<button type="button" class="atom8-subnetmap-zoom-fit" aria-label="Fit diagram to window" title="Fit to window"><i class="fa-solid fa-maximize" aria-hidden="true"></i></button></div>' +
         '<button type="button" class="atom8-subnetmap-close" aria-label="Close subnet diagram"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></div></header>' +
+        modebar +
         '<ul class="atom8-subnetmap-legend" aria-label="Legend"><li><span class="atom8-subnetmap-use is-lan"><b>LAN</b></span> serves a LAN</li><li><span class="atom8-subnetmap-use is-wan"><b>WAN</b></span> serves a WAN link</li>' +
-        '<li><span class="atom8-subnetmap-use is-split"><b>Subdivided</b></span> split again into smaller subnets</li><li><span class="atom8-subnetmap-use is-free">Available</span> left in the pool</li></ul>' +
+        '<li><span class="atom8-subnetmap-use is-split"><b>Subdivided</b></span> split again into smaller subnets</li><li><span class="atom8-subnetmap-use is-free">Available</span> left in the pool</li>' +
+        '<li class="atom8-subnetmap-legend-issue" hidden><span class="atom8-subnetmap-use is-issue"><i class="fa-solid fa-triangle-exclamation" aria-hidden="true"></i><b>Check</b></span> needs attention (hover or expand the row)</li></ul>' +
         '<div class="atom8-subnetmap-viewport" tabindex="0" aria-label="Subnet diagram. Drag or scroll to pan. Hold Ctrl or Command and scroll to zoom."></div></section></div>';
 }
 
@@ -8217,6 +8359,96 @@ function atom8FitSubnetMap(modal) {
     ));
     viewport.scrollLeft = 0;
     viewport.scrollTop = 0;
+}
+
+// ---- Diagram basis: "key" (reference VLSM plan) or "student" (the subnets the
+// student configured). The choice is remembered per student and browser.
+const ATOM8_SUBNET_MAP_MODE_KEY = 'subnetacadSubnetMapModeByUser';
+
+function atom8SubnetMapModes(ex = atom8CurrentExercise()) {
+    const cfg = QUESTION_CONFIG[atom8ConfigKey(ex)]?.subnetDiagram;
+    return cfg?.studentAnswerMode === false ? ['key'] : ['key', 'student'];
+}
+
+function atom8SubnetMapMode(modal) {
+    return modal?._atom8Mode === 'student' ? 'student' : 'key';
+}
+
+function atom8InitialSubnetMapMode(ex) {
+    if (atom8SubnetMapModes(ex).length < 2) return 'key';
+    try {
+        const saved = JSON.parse(localStorage.getItem(ATOM8_SUBNET_MAP_MODE_KEY));
+        const mode = saved && saved[atom8SubnetMapUserId()];
+        if (mode === 'key' || mode === 'student') return mode;
+    } catch (err) { /* fall through to the configured default */ }
+    return QUESTION_CONFIG[atom8ConfigKey(ex)]?.subnetDiagram?.defaultMode === 'student' ? 'student' : 'key';
+}
+
+function atom8RememberSubnetMapMode(mode) {
+    try {
+        const saved = JSON.parse(localStorage.getItem(ATOM8_SUBNET_MAP_MODE_KEY));
+        const store = saved && typeof saved === 'object' && !Array.isArray(saved) ? saved : {};
+        store[atom8SubnetMapUserId()] = mode;
+        localStorage.setItem(ATOM8_SUBNET_MAP_MODE_KEY, JSON.stringify(store));
+    } catch (err) { /* storage unavailable: the choice just won't persist */ }
+}
+
+function atom8SubnetMapStatusHtml(summary) {
+    if (!summary) return '';
+    const configuredNothing = summary.placed === 0 && summary.unplaced.every(item => item.pending);
+    if (configuredNothing) {
+        return '<strong>Nothing configured yet.</strong> Apply router interface settings and your subnets will appear here.';
+    }
+    const headline = summary.placed + ' of ' + summary.total + ' networks placed' +
+        (summary.attention ? ' · ' + summary.attention + (summary.attention === 1 ? ' needs' : ' need') + ' attention' : '');
+    const list = summary.unplaced.map(item => '<li><b>' + atom6Escape(item.label) + '</b> ' + atom6Escape(item.text) + '</li>').join('');
+    return '<strong>' + headline + '</strong>' + (list ? '<ul>' + list + '</ul>' : '');
+}
+
+// Syncs the parts of the dialog outside the diagram with the current basis.
+function atom8UpdateSubnetMapChrome(modal, summary) {
+    const mode = atom8SubnetMapMode(modal);
+    modal.querySelectorAll('.atom8-subnetmap-mode-btn').forEach(button => {
+        const active = button.dataset.mode === mode;
+        button.setAttribute('aria-pressed', active ? 'true' : 'false');
+        button.classList.toggle('is-active', active);
+    });
+    const hasModes = !!modal.querySelector('.atom8-subnetmap-modes');
+    const eyebrow = modal.querySelector('.atom8-subnetmap-eyebrow');
+    if (eyebrow && hasModes) eyebrow.textContent = 'VLSM Allocation Map · ' + (mode === 'student' ? 'My answer' : 'Answer key');
+    const legendIssue = modal.querySelector('.atom8-subnetmap-legend-issue');
+    if (legendIssue) legendIssue.hidden = mode !== 'student';
+    const status = modal.querySelector('.atom8-subnetmap-status');
+    if (status) {
+        const html = mode === 'student' ? atom8SubnetMapStatusHtml(summary) : '';
+        // Only touch the live region when its content changes.
+        if (modal._atom8StatusHtml !== html) {
+            modal._atom8StatusHtml = html;
+            status.innerHTML = html;
+        }
+        status.hidden = !html;
+    }
+}
+
+function atom8FillSubnetMap(modal, ex) {
+    const viewport = modal?.querySelector('.atom8-subnetmap-viewport');
+    if (!viewport) return;
+    const out = {};
+    viewport.innerHTML = atom8BuildSubnetMap(ex, modal._atom8OpenRows, atom8SubnetMapMode(modal), out);
+    atom8UpdateSubnetMapChrome(modal, out.summary);
+}
+
+// Loads the saved view for the current basis, draws the diagram and restores
+// zoom and scroll. Expanded rows are only remembered for the answer key: the
+// student diagram's structure changes as the student edits, so its row keys
+// would point at different rows next time.
+function atom8LoadSubnetMapModeView(modal, ex) {
+    const mode = atom8SubnetMapMode(modal);
+    modal._atom8ViewKey = atom8SubnetMapViewKey(ex, mode);
+    const savedView = atom8LoadSubnetMapView(modal._atom8ViewKey);
+    modal._atom8OpenRows = new Set(mode === 'key' && Array.isArray(savedView?.open) ? savedView.open : []);
+    atom8FillSubnetMap(modal, ex);
+    atom8RestoreSubnetMapView(modal, savedView);
 }
 
 // Closes the diagram, saves its view and returns focus to the button that
@@ -8344,9 +8576,11 @@ const ATOM8_SUBNET_MAP_VIEWS_KEY = 'subnetacadSubnetMapViews';
 const ATOM8_SUBNET_MAP_VIEWS_MAX = 60;
 let atom8SubnetMapViewSaveTimer = null;
 
-function atom8SubnetMapViewKey(ex) {
+function atom8SubnetMapViewKey(ex, mode) {
     const parent = ex.scenario.parent;
-    return [atom8SubnetMapUserId(), activeDeploymentExerciseKey, parent.network + '/' + parent.cidr].join('|');
+    // The answer-key key is unchanged, so views saved before the student
+    // mode existed still load.
+    return [atom8SubnetMapUserId(), activeDeploymentExerciseKey, parent.network + '/' + parent.cidr, mode === 'student' ? 'student' : ''].filter(Boolean).join('|');
 }
 
 function atom8ReadSubnetMapViews() {
@@ -9040,14 +9274,23 @@ function atom8HandleDeviceClick(event) {
         const modal = document.querySelector(atom8CurrentContainerSelector() + ' .atom8-subnetmap-modal');
         const viewport = modal?.querySelector('.atom8-subnetmap-viewport');
         if (!ex || !viewport || !atom8SubnetDiagramEnabled(ex)) return;
-        modal._atom8ViewKey = atom8SubnetMapViewKey(ex);
-        const savedView = atom8LoadSubnetMapView(modal._atom8ViewKey);
-        modal._atom8OpenRows = new Set(Array.isArray(savedView?.open) ? savedView.open : []);
-        viewport.innerHTML = atom8BuildSubnetMap(ex, modal._atom8OpenRows);
+        modal._atom8Mode = atom8InitialSubnetMapMode(ex);
         modal._atom8Opener = event.target.closest('.atom8-subnetmap-open');
         modal.hidden = false;
-        atom8RestoreSubnetMapView(modal, savedView);
+        atom8LoadSubnetMapModeView(modal, ex);
         modal.querySelector('.atom8-subnetmap-close')?.focus();
+        return;
+    }
+    const subnetMapModeButton = event.target.closest('.atom8-subnetmap-mode-btn');
+    if (subnetMapModeButton) {
+        const modal = subnetMapModeButton.closest('.atom8-subnetmap-modal');
+        const ex = atom8CurrentExercise();
+        const mode = subnetMapModeButton.dataset.mode === 'student' ? 'student' : 'key';
+        if (!modal || !ex || !atom8SubnetDiagramEnabled(ex) || mode === atom8SubnetMapMode(modal)) return;
+        atom8SaveSubnetMapView(modal);
+        modal._atom8Mode = mode;
+        atom8RememberSubnetMapMode(mode);
+        atom8LoadSubnetMapModeView(modal, ex);
         return;
     }
     const subnetMapJump = event.target.closest('.atom8-subnetmap-jump');

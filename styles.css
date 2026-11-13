@@ -10075,3 +10075,115 @@ button:focus-visible, input:focus-visible {
   font-family: var(--font-mono);
   font-size: .72rem;
 }
+
+/* Diagram basis switch (Answer key | My answer) and student-answer states. */
+.atom8-subnetmap-modebar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 18px;
+  margin: 0 0 10px;
+}
+.atom8-subnetmap-modes {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, .7);
+}
+.atom8-subnetmap-mode-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: .74rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+.atom8-subnetmap-mode-btn:hover {
+  color: #fff;
+}
+.atom8-subnetmap-mode-btn.is-active {
+  border-color: rgba(147, 197, 253, .5);
+  background: #1d4ed8;
+  color: #eff6ff;
+}
+.atom8-subnetmap-mode-btn:focus-visible {
+  outline: 2px solid #60a5fa;
+  outline-offset: 1px;
+}
+.atom8-subnetmap-status {
+  flex: 1 1 280px;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: .74rem;
+  line-height: 1.45;
+}
+.atom8-subnetmap-status[hidden],
+.atom8-subnetmap-legend li[hidden] {
+  display: none;
+}
+.atom8-subnetmap-status strong {
+  color: #e2e8f0;
+}
+.atom8-subnetmap-status ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 16px;
+  margin: 3px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.atom8-subnetmap-status li b {
+  color: #cbd5e1;
+}
+
+.atom8-subnetmap-item.has-issue {
+  border-left-color: #ef4444;
+  background: rgba(239, 68, 68, .12);
+}
+.atom8-subnetmap-use-flag {
+  color: #fff;
+}
+.atom8-subnetmap-use.is-issue {
+  background: rgba(239, 68, 68, .18);
+  color: #fecaca;
+  box-shadow: 0 0 0 1px rgba(248, 113, 113, .6);
+}
+.atom8-subnetmap-detail .atom8-subnetmap-issue {
+  grid-column: 1 / -1;
+  flex-direction: row;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  color: #fecaca;
+  font-size: .72rem;
+}
+.atom8-subnetmap-issue i {
+  flex: 0 0 auto;
+  color: #f87171;
+}
+.atom8-subnetmap-issue span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.atom8-subnetmap-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  border: 0;
+  white-space: nowrap;
+}
