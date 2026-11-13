@@ -9498,6 +9498,10 @@ button:focus-visible, input:focus-visible {
   z-index: 1250;
   inset: 0;
   display: grid;
+  /* Fixed single column: without this the implicit auto column grows to the
+     diagram's pixel width, pushing the dialog off-centre and off-screen. */
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
   place-items: center;
   padding: 20px;
 }
@@ -9515,8 +9519,11 @@ button:focus-visible, input:focus-visible {
   position: relative;
   display: flex;
   flex-direction: column;
+  box-sizing: border-box;
+  min-width: 0;
   width: min(1560px, 100%);
   height: min(90vh, 940px);
+  height: min(90dvh, 940px);
   padding: 20px 22px 18px;
   border: 1px solid rgba(96, 165, 250, .42);
   border-radius: 14px;
@@ -9630,7 +9637,13 @@ button:focus-visible, input:focus-visible {
 .atom8-subnetmap-viewport {
   flex: 1 1 auto;
   min-height: 0;
+  min-width: 0;
   overflow: auto;
+  overscroll-behavior: contain;
+  color-scheme: dark;
+  scrollbar-color: #334155 #0a1222;
+  scrollbar-width: thin;
+  cursor: grab;
   border: 1px solid rgba(71, 85, 105, .55);
   border-radius: 12px;
   background:
@@ -9641,6 +9654,32 @@ button:focus-visible, input:focus-visible {
 .atom8-subnetmap-viewport:focus-visible {
   outline: 2px solid #60a5fa;
   outline-offset: -2px;
+}
+.atom8-subnetmap-viewport.is-panning {
+  cursor: grabbing;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.atom8-subnetmap-viewport.is-panning * {
+  cursor: grabbing;
+}
+.atom8-subnetmap-viewport::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+.atom8-subnetmap-viewport::-webkit-scrollbar-track {
+  background: #0a1222;
+}
+.atom8-subnetmap-viewport::-webkit-scrollbar-thumb {
+  border: 2px solid #0a1222;
+  border-radius: 8px;
+  background: #334155;
+}
+.atom8-subnetmap-viewport::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
+.atom8-subnetmap-viewport::-webkit-scrollbar-corner {
+  background: #0a1222;
 }
 
 .atom8-subnetmap-canvas {
@@ -9748,92 +9787,136 @@ button:focus-visible, input:focus-visible {
   color: #fffbeb;
 }
 
-.atom8-subnetmap-card table {
-  width: 100%;
-  table-layout: fixed;
-  border-collapse: separate;
-  border-spacing: 0;
-}
-
-.atom8-subnetmap-card th,
-.atom8-subnetmap-card td {
+.atom8-subnetmap-item {
   box-sizing: border-box;
-  padding: 0 8px;
   overflow: hidden;
   border-bottom: 1px solid rgba(51, 65, 85, .7);
+  border-left: 4px solid transparent;
+}
+.atom8-subnetmap-card > .atom8-subnetmap-item:last-child {
+  border-bottom: 0;
+}
+.atom8-subnetmap-item.is-lan {
+  border-left-color: #10b981;
+  background: rgba(16, 185, 129, .12);
+}
+.atom8-subnetmap-item.is-wan {
+  border-left-color: #f59e0b;
+  background: rgba(245, 158, 11, .12);
+}
+.atom8-subnetmap-item.is-split {
+  border-left-color: #38bdf8;
+  background: rgba(56, 189, 248, .08);
+}
+.atom8-subnetmap-row {
+  display: grid;
+  box-sizing: border-box;
+  width: 100%;
+  grid-template-columns: 26px minmax(0, 1fr) auto 14px;
+  align-items: center;
+  gap: 8px;
+  padding: 0 10px 0 8px;
+  border: 0;
+  background: transparent;
+  color: #e2e8f0;
+  font: inherit;
   text-align: left;
+  cursor: pointer;
+}
+.atom8-subnetmap-row:hover {
+  background: rgba(148, 163, 184, .1);
+}
+.atom8-subnetmap-row:focus-visible {
+  outline: 2px solid #60a5fa;
+  outline-offset: -2px;
+}
+.atom8-subnetmap-row .idx {
+  color: #93c5fd;
+  font-family: var(--font-mono);
+  font-size: .8rem;
+  font-weight: 800;
+  text-align: center;
+}
+.atom8-subnetmap-row .main {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+.atom8-subnetmap-row .main strong {
+  overflow: hidden;
+  color: #f1f5f9;
+  font-family: var(--font-mono);
+  font-size: .86rem;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-
-.atom8-subnetmap-card th {
-  background: rgba(15, 23, 42, .9);
+.atom8-subnetmap-row .main strong i {
+  color: #fbbf24;
+  font-style: normal;
+}
+.atom8-subnetmap-row .main small {
+  overflow: hidden;
   color: #94a3b8;
-  font-size: .62rem;
+  font-family: var(--font-mono);
+  font-size: .7rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.atom8-subnetmap-row .use {
+  display: flex;
+  min-width: 0;
+  max-width: 132px;
+  justify-content: flex-end;
+}
+.atom8-subnetmap-row .chev {
+  color: #94a3b8;
+  font-size: .7rem;
+  transition: transform .15s ease;
+}
+.atom8-subnetmap-item.is-open .atom8-subnetmap-row .chev {
+  transform: rotate(180deg);
+}
+.atom8-subnetmap-detail {
+  display: grid;
+  box-sizing: border-box;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-content: center;
+  gap: 8px;
+  padding: 0 10px 0 38px;
+  border-top: 1px dashed rgba(71, 85, 105, .7);
+  background: rgba(2, 6, 23, .35);
+}
+.atom8-subnetmap-detail div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+.atom8-subnetmap-detail small {
+  color: #94a3b8;
+  font-size: .6rem;
   font-weight: 800;
   letter-spacing: .06em;
   text-transform: uppercase;
 }
-
-.atom8-subnetmap-card td {
+.atom8-subnetmap-detail code {
+  overflow: hidden;
   color: #e2e8f0;
   font-family: var(--font-mono);
   font-size: .72rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-
-.atom8-subnetmap-card td strong {
-  color: #fbbf24;
-}
-
-.atom8-subnetmap-card td.idx {
-  color: #93c5fd;
-  font-weight: 800;
-  text-align: center;
-}
-
-.atom8-subnetmap-card td.use {
-  padding: 0 6px;
-  font-family: var(--font-sans, inherit);
-}
-
-.atom8-subnetmap-card tbody tr:last-child td {
-  border-bottom: 0;
-}
-
-.atom8-subnetmap-card tr.is-lan td {
-  background: rgba(16, 185, 129, .17);
-}
-
-.atom8-subnetmap-card tr.is-wan td {
-  background: rgba(245, 158, 11, .17);
-}
-
-.atom8-subnetmap-card tr.is-split td {
-  background: rgba(56, 189, 248, .1);
-}
-
-.atom8-subnetmap-card tr.is-free td {
+.atom8-subnetmap-gap {
+  display: grid;
+  box-sizing: border-box;
+  place-items: center;
+  border-bottom: 1px solid rgba(51, 65, 85, .7);
   color: #94a3b8;
-}
-
-.atom8-subnetmap-card tr.is-lan td.idx {
-  box-shadow: inset 5px 0 0 #10b981;
-}
-
-.atom8-subnetmap-card tr.is-wan td.idx {
-  box-shadow: inset 5px 0 0 #f59e0b;
-}
-
-.atom8-subnetmap-card tr.is-split td.idx {
-  box-shadow: inset 5px 0 0 #38bdf8;
-}
-
-.atom8-subnetmap-card tr.is-gap td {
-  color: #64748b;
+  font-size: .72rem;
   font-style: italic;
-  text-align: center;
 }
-
 .atom8-subnetmap-use {
   display: inline-flex;
   box-sizing: border-box;
@@ -9882,8 +9965,8 @@ button:focus-visible, input:focus-visible {
 }
 
 .atom8-subnetmap-use.is-free {
-  color: #64748b;
-  box-shadow: 0 0 0 1px rgba(100, 116, 139, .5);
+  color: #94a3b8;
+  box-shadow: 0 0 0 1px rgba(148, 163, 184, .5);
   font-weight: 600;
 }
 
@@ -9894,6 +9977,7 @@ button:focus-visible, input:focus-visible {
 
   .atom8-subnetmap-dialog {
     height: 94vh;
+    height: 94dvh;
     padding: 14px;
   }
 

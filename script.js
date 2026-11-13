@@ -7920,14 +7920,16 @@ function atom8BuildRequirementsModal(ex) {
 // the modal is hidden or zoomed.
 // =====================================================================
 const ATOM8_SUBNET_MAP = {
-    columns: [52, 116, 116, 116, 116, 162, 190],
-    tableWidth: 868,
-    columnGap: 124,
-    tableGap: 34,
-    pad: 28,
-    headerHeight: 66,
-    columnHeadHeight: 30,
-    rowHeight: 36,
+    // Compact card layout: width is fixed per card, so horizontal size only
+    // grows with the number of nested splits; expanding a subnet adds height.
+    tableWidth: 420,
+    columnGap: 90,
+    tableGap: 28,
+    pad: 24,
+    headerHeight: 60,
+    rowHeight: 58,
+    detailHeight: 64,
+    gapHeight: 34,
     collapseMinRows: 10,
     collapseRunLength: 4,
     minZoom: 0.4,
@@ -7935,7 +7937,7 @@ const ATOM8_SUBNET_MAP = {
     zoomStep: 0.1
 };
 
-function atom8BuildSubnetMapModel(scenario) {
+function atom8BuildSubnetMapModel(scenario, expanded) {
     const cfg = ATOM8_SUBNET_MAP;
     const solution = scenario.solution;
     const parentBlock = atom6Block(scenario.parent.networkInt, scenario.parent.cidr);
@@ -7962,7 +7964,6 @@ function atom8BuildSubnetMapModel(scenario) {
 
     let step = 0;
     const addStep = (source, blocks, uses, purpose) => {
-        step += 1;
         const holder = findFreeRow(source);
         if (!holder || !blocks.length) return;
         const first = blocks[0];
@@ -7972,9 +7973,13 @@ function atom8BuildSubnetMapModel(scenario) {
             holder.row.use = uses[0] || null;
             return;
         }
+        // Cards are numbered as "Split N", counting only splits that are
+        // drawn. An allocation that just labels an existing pool row (above)
+        // is not a split, so it must not consume a number.
+        step += 1;
         const table = {
             id: 't' + tables.length, depth: holder.table.depth + 1, kind: 'split', step,
-            chip: 'Step ' + step,
+            chip: 'Split ' + step,
             title: source.network + '/' + source.cidr + ' → /' + first.cidr,
             subtitle: purpose,
             rows: blocks.map((block, i) => ({ index: i, block, use: uses[i] || null, childId: null })),
@@ -8022,7 +8027,18 @@ function atom8BuildSubnetMapModel(scenario) {
         });
         flush();
         table.visible = visible;
-        table.height = 2 + cfg.headerHeight + cfg.columnHeadHeight + visible.length * cfg.rowHeight;
+        let bodyHeight = 0;
+        visible.forEach(item => {
+            if (item.gap) {
+                item.h = cfg.gapHeight;
+            } else {
+                item.key = table.id + ':' + item.index;
+                item.open = !!(expanded && expanded.has(item.key));
+                item.h = cfg.rowHeight + (item.open ? cfg.detailHeight : 0);
+            }
+            bodyHeight += item.h;
+        });
+        table.height = 2 + cfg.headerHeight + bodyHeight;
     });
 
     // Column per depth; tables of one depth stack top to bottom. A child is
@@ -8033,8 +8049,10 @@ function atom8BuildSubnetMapModel(scenario) {
         const desired = table.parentRow ? table.parentRow.cy - cfg.headerHeight / 2 - 1 : cfg.pad;
         table.y = Math.max(desired, nextFree[table.depth] ?? cfg.pad);
         nextFree[table.depth] = table.y + table.height + cfg.tableGap;
-        table.visible.forEach((row, i) => {
-            if (!row.gap) row.cy = table.y + 1 + cfg.headerHeight + cfg.columnHeadHeight + i * cfg.rowHeight + cfg.rowHeight / 2;
+        let rowTop = table.y + 1 + cfg.headerHeight;
+        table.visible.forEach(item => {
+            if (!item.gap) item.cy = rowTop + cfg.rowHeight / 2;
+            rowTop += item.h;
         });
     });
 
@@ -8057,9 +8075,9 @@ function atom8SubnetMapUseHtml(row, tableById) {
     return '<span class="atom8-subnetmap-use is-free">Available</span>';
 }
 
-function atom8BuildSubnetMap(ex) {
+function atom8BuildSubnetMap(ex, expanded) {
     const cfg = ATOM8_SUBNET_MAP;
-    const model = atom8BuildSubnetMapModel(ex.scenario);
+    const model = atom8BuildSubnetMapModel(ex.scenario, expanded);
     const tableById = Object.fromEntries(model.tables.map(table => [table.id, table]));
 
     const links = model.tables.filter(table => table.parentRow).map(table => {
@@ -8068,7 +8086,7 @@ function atom8BuildSubnetMap(ex) {
         const y1 = table.parentRow.cy;
         const x2 = table.x;
         const y2 = table.y + 1 + cfg.headerHeight / 2;
-        const dx = Math.max(48, (x2 - x1) * 0.55);
+        const dx = Math.max(40, (x2 - x1) * 0.55);
         const label = '/' + table.parentRow.block.cidr + ' → /' + table.rows[0].block.cidr;
         return '<path class="atom8-subnetmap-link" d="M ' + x1 + ' ' + y1 + ' C ' + (x1 + dx) + ' ' + y1 + ', ' + (x2 - dx) + ' ' + y2 + ', ' + x2 + ' ' + y2 + '"></path>' +
             '<circle class="atom8-subnetmap-dot" cx="' + x1 + '" cy="' + y1 + '" r="5"></circle>' +
@@ -8076,22 +8094,30 @@ function atom8BuildSubnetMap(ex) {
             '<text class="atom8-subnetmap-link-label" x="' + ((x1 + x2) / 2) + '" y="' + (((y1 + y2) / 2) - 9) + '" text-anchor="middle">' + label + '</text>';
     }).join('');
 
-    const colgroup = '<colgroup>' + cfg.columns.map(width => '<col style="width:' + width + 'px">').join('') + '</colgroup>';
-    const head = '<thead><tr style="height:' + cfg.columnHeadHeight + 'px"><th>Index</th><th>Network Address</th><th>First Usable</th><th>Last Usable</th><th>Broadcast</th><th>Subnet Mask / CIDR</th><th>Used For</th></tr></thead>';
+    const field = (label, value) => '<div><small>' + label + '</small><code>' + atom6Escape(value) + '</code></div>';
 
     const cards = model.tables.map(table => {
         const rows = table.visible.map(row => {
             if (row.gap) {
-                return '<tr class="is-gap" style="height:' + cfg.rowHeight + 'px"><td colspan="7">⋯ ' + row.count + ' more available subnets · index ' + row.from + '–' + row.to + '</td></tr>';
+                return '<div class="atom8-subnetmap-gap" style="height:' + cfg.gapHeight + 'px">⋯ ' + row.count + ' more available subnets · index ' + row.from + '–' + row.to + '</div>';
             }
             const block = row.block;
             const state = row.use ? 'is-' + row.use.kind : row.childId ? 'is-split' : 'is-free';
-            return '<tr class="' + state + '" style="height:' + cfg.rowHeight + 'px"><td class="idx">' + row.index + '</td><td>' + block.network + '</td><td>' + block.first + '</td><td>' + block.last + '</td><td>' + block.broadcast + '</td>' +
-                '<td>' + block.mask.join('.') + ' <strong>/' + block.cidr + '</strong></td><td class="use">' + atom8SubnetMapUseHtml(row, tableById) + '</td></tr>';
+            const detailId = 'atom8Sm-' + row.key.replace(':', '-');
+            const hosts = block.usableIp + ' host' + (block.usableIp === 1 ? '' : 's');
+            const detail = row.open ?
+                '<div class="atom8-subnetmap-detail" id="' + detailId + '" style="height:' + cfg.detailHeight + 'px">' +
+                field('First usable', block.first) + field('Last usable', block.last) + field('Broadcast', block.broadcast) + '</div>' : '';
+            return '<div class="atom8-subnetmap-item ' + state + (row.open ? ' is-open' : '') + '" style="height:' + row.h + 'px">' +
+                '<button type="button" class="atom8-subnetmap-row" data-row-key="' + row.key + '" aria-expanded="' + row.open + '"' + (row.open ? ' aria-controls="' + detailId + '"' : '') + ' style="height:' + cfg.rowHeight + 'px">' +
+                '<span class="idx">' + row.index + '</span>' +
+                '<span class="main"><strong>' + block.network + '<i>/' + block.cidr + '</i></strong><small>' + block.mask.join('.') + ' · ' + hosts + '</small></span>' +
+                '<span class="use">' + atom8SubnetMapUseHtml(row, tableById) + '</span>' +
+                '<i class="fa-solid fa-chevron-down chev" aria-hidden="true"></i></button>' + detail + '</div>';
         }).join('');
         return '<section class="atom8-subnetmap-card is-' + table.kind + '" style="left:' + table.x + 'px;top:' + table.y + 'px;width:' + cfg.tableWidth + 'px;height:' + table.height + 'px" aria-label="' + atom6Escape(table.chip + ': ' + table.title) + '">' +
             '<header style="height:' + cfg.headerHeight + 'px"><span class="atom8-subnetmap-chip">' + atom6Escape(table.chip) + '</span><div><strong>' + atom6Escape(table.title) + '</strong><small>' + atom6Escape(table.subtitle) + '</small></div></header>' +
-            '<table>' + colgroup + head + '<tbody>' + rows + '</tbody></table></section>';
+            rows + '</section>';
     }).join('');
 
     return '<div class="atom8-subnetmap-plane" data-base-width="' + model.width + '" data-base-height="' + model.height + '" data-zoom="1" style="width:' + model.width + 'px;height:' + model.height + 'px">' +
@@ -8099,11 +8125,29 @@ function atom8BuildSubnetMap(ex) {
         '<svg class="atom8-subnetmap-links" width="' + model.width + '" height="' + model.height + '" viewBox="0 0 ' + model.width + ' ' + model.height + '" aria-hidden="true">' + links + '</svg>' + cards + '</div></div>';
 }
 
+// Re-renders the diagram after a subnet is expanded or collapsed. Layout is
+// recomputed (heights change), then zoom and scroll position are restored.
+function atom8RenderSubnetMap(modal, ex) {
+    const viewport = modal?.querySelector('.atom8-subnetmap-viewport');
+    if (!viewport) return;
+    const prevPlane = viewport.querySelector('.atom8-subnetmap-plane');
+    const zoom = prevPlane ? Number(prevPlane.dataset.zoom) || 1 : null;
+    const left = viewport.scrollLeft;
+    const top = viewport.scrollTop;
+    viewport.innerHTML = atom8BuildSubnetMap(ex, modal._atom8OpenRows);
+    if (zoom) {
+        viewport.querySelector('.atom8-subnetmap-plane').dataset.zoom = String(zoom);
+        atom8ApplySubnetMapZoom(modal, zoom);
+        viewport.scrollLeft = left;
+        viewport.scrollTop = top;
+    }
+}
+
 function atom8BuildSubnetMapModal(ex) {
     return '<div class="atom8-subnetmap-modal" hidden><button type="button" class="atom8-subnetmap-backdrop" aria-label="Close subnet diagram"></button>' +
         '<section class="atom8-subnetmap-dialog" role="dialog" aria-modal="true" aria-labelledby="atom8SubnetMapTitle">' +
         '<header><div><span>VLSM Allocation Map</span><h3 id="atom8SubnetMapTitle">Subnet Diagram · ' + ex.scenario.parent.network + '/' + ex.scenario.parent.cidr + '</h3>' +
-        '<p>Each table is one subnetting step. A curved line leads from the subnet that was divided to the table of subnets created from it.</p></div>' +
+        '<p>Each card is one split of a subnet into smaller subnets, and a curved line leads from the subnet that was divided to the card created from it. Select a subnet to show its usable range and broadcast address.</p></div>' +
         '<div class="atom8-subnetmap-tools"><div class="atom8-subnetmap-zoom" aria-label="Diagram zoom controls">' +
         '<button type="button" class="atom8-subnetmap-zoom-out" aria-label="Zoom out"><i class="fa-solid fa-minus" aria-hidden="true"></i></button>' +
         '<span class="atom8-subnetmap-zoom-label">100%</span>' +
@@ -8112,7 +8156,7 @@ function atom8BuildSubnetMapModal(ex) {
         '<button type="button" class="atom8-subnetmap-close" aria-label="Close subnet diagram"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></div></header>' +
         '<ul class="atom8-subnetmap-legend" aria-label="Legend"><li><span class="atom8-subnetmap-use is-lan"><b>LAN</b></span> serves a LAN</li><li><span class="atom8-subnetmap-use is-wan"><b>WAN</b></span> serves a WAN link</li>' +
         '<li><span class="atom8-subnetmap-use is-split"><b>Subdivided</b></span> split again into smaller subnets</li><li><span class="atom8-subnetmap-use is-free">Available</span> left in the pool</li></ul>' +
-        '<div class="atom8-subnetmap-viewport" tabindex="0" aria-label="Subnet diagram. Scroll to pan."></div></section></div>';
+        '<div class="atom8-subnetmap-viewport" tabindex="0" aria-label="Subnet diagram. Drag or scroll to pan."></div></section></div>';
 }
 
 function atom8ApplySubnetMapZoom(modal, zoom) {
@@ -8120,13 +8164,28 @@ function atom8ApplySubnetMapZoom(modal, zoom) {
     const canvas = modal?.querySelector('.atom8-subnetmap-canvas');
     if (!plane || !canvas) return;
     const cfg = ATOM8_SUBNET_MAP;
+    const viewport = modal.querySelector('.atom8-subnetmap-viewport');
+    const prevZoom = Number(plane.dataset.zoom) || 1;
     const z = Math.round(Math.min(cfg.maxZoom, Math.max(cfg.minZoom, zoom)) * 100) / 100;
+
+    // Remember which diagram point sits at the centre of the viewport so the
+    // view stays on it after the zoom, instead of jumping toward the corner.
+    const anchor = viewport ? {
+        x: (viewport.scrollLeft + viewport.clientWidth / 2) / prevZoom,
+        y: (viewport.scrollTop + viewport.clientHeight / 2) / prevZoom
+    } : null;
+
     plane.style.width = Math.ceil(Number(plane.dataset.baseWidth) * z) + 'px';
     plane.style.height = Math.ceil(Number(plane.dataset.baseHeight) * z) + 'px';
     canvas.style.transform = 'scale(' + z + ')';
     plane.dataset.zoom = String(z);
     const label = modal.querySelector('.atom8-subnetmap-zoom-label');
     if (label) label.textContent = Math.round(z * 100) + '%';
+
+    if (anchor && z !== prevZoom) {
+        viewport.scrollLeft = Math.max(0, anchor.x * z - viewport.clientWidth / 2);
+        viewport.scrollTop = Math.max(0, anchor.y * z - viewport.clientHeight / 2);
+    }
 }
 
 function atom8FitSubnetMap(modal) {
@@ -8136,6 +8195,72 @@ function atom8FitSubnetMap(modal) {
     const available = Math.max(200, viewport.clientWidth - 24);
     atom8ApplySubnetMapZoom(modal, Math.min(1, available / Number(plane.dataset.baseWidth)));
 }
+
+// Click-and-drag panning for the subnet diagram. Mouse and pen only: touch
+// already pans natively through the viewport's own scrolling. The drag only
+// "activates" after a few pixels of movement, so a plain click still reaches
+// the subnet rows; the click that ends a real drag is swallowed. Presses on
+// the native scrollbars are ignored.
+let atom8SubnetMapDrag = null;
+let atom8SubnetMapSuppressClick = false;
+const ATOM8_SUBNET_MAP_DRAG_THRESHOLD = 4;
+
+function atom8SubnetMapOnScrollbar(viewport, event) {
+    const rect = viewport.getBoundingClientRect();
+    const x = event.clientX - rect.left - viewport.clientLeft;
+    const y = event.clientY - rect.top - viewport.clientTop;
+    return x >= viewport.clientWidth || y >= viewport.clientHeight;
+}
+
+document.addEventListener('pointerdown', event => {
+    if (event.button !== 0 || event.pointerType === 'touch') return;
+    const viewport = event.target.closest?.('.atom8-subnetmap-viewport');
+    if (!viewport || atom8SubnetMapOnScrollbar(viewport, event)) return;
+    atom8SubnetMapDrag = {
+        viewport,
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        scrollLeft: viewport.scrollLeft,
+        scrollTop: viewport.scrollTop,
+        active: false
+    };
+});
+
+document.addEventListener('pointermove', event => {
+    const drag = atom8SubnetMapDrag;
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    const dx = event.clientX - drag.startX;
+    const dy = event.clientY - drag.startY;
+    if (!drag.active) {
+        if (Math.hypot(dx, dy) < ATOM8_SUBNET_MAP_DRAG_THRESHOLD) return;
+        drag.active = true;
+        drag.viewport.classList.add('is-panning');
+        try { drag.viewport.setPointerCapture(event.pointerId); } catch (err) { /* capture is optional */ }
+        window.getSelection?.()?.removeAllRanges();
+    }
+    drag.viewport.scrollLeft = drag.scrollLeft - dx;
+    drag.viewport.scrollTop = drag.scrollTop - dy;
+});
+
+function atom8EndSubnetMapDrag(event) {
+    const drag = atom8SubnetMapDrag;
+    if (!drag || event.pointerId !== drag.pointerId) return;
+    atom8SubnetMapDrag = null;
+    if (!drag.active) return;
+    drag.viewport.classList.remove('is-panning');
+    try { drag.viewport.releasePointerCapture(event.pointerId); } catch (err) { /* already released */ }
+    atom8SubnetMapSuppressClick = true;
+    setTimeout(() => { atom8SubnetMapSuppressClick = false; }, 0);
+}
+document.addEventListener('pointerup', atom8EndSubnetMapDrag);
+document.addEventListener('pointercancel', atom8EndSubnetMapDrag);
+document.addEventListener('click', event => {
+    if (!atom8SubnetMapSuppressClick) return;
+    atom8SubnetMapSuppressClick = false;
+    event.stopPropagation();
+    event.preventDefault();
+}, true);
 
 function atom8SetWorkspaceMode(mode) {
     if (!['configure', 'self-test', 'official'].includes(mode) || atom8PingState.running || atom8OfficialRunAllActive || atom8SelfRunAllActive) return;
@@ -8657,12 +8782,25 @@ function atom8HandleDeviceClick(event) {
         const modal = document.querySelector(atom8CurrentContainerSelector() + ' .atom8-subnetmap-modal');
         const viewport = modal?.querySelector('.atom8-subnetmap-viewport');
         if (!ex || !viewport || !atom8SubnetDiagramEnabled(ex)) return;
-        viewport.innerHTML = atom8BuildSubnetMap(ex);
+        modal._atom8OpenRows = new Set();
+        viewport.innerHTML = atom8BuildSubnetMap(ex, modal._atom8OpenRows);
         modal.hidden = false;
         atom8FitSubnetMap(modal);
         viewport.scrollLeft = 0;
         viewport.scrollTop = 0;
         modal.querySelector('.atom8-subnetmap-close')?.focus();
+        return;
+    }
+    const subnetMapRow = event.target.closest('.atom8-subnetmap-row');
+    if (subnetMapRow) {
+        const modal = subnetMapRow.closest('.atom8-subnetmap-modal');
+        const ex = atom8CurrentExercise();
+        if (!modal || !ex || !atom8SubnetDiagramEnabled(ex)) return;
+        const key = subnetMapRow.dataset.rowKey;
+        const open = modal._atom8OpenRows || (modal._atom8OpenRows = new Set());
+        if (open.has(key)) open.delete(key); else open.add(key);
+        atom8RenderSubnetMap(modal, ex);
+        modal.querySelector('.atom8-subnetmap-row[data-row-key="' + key + '"]')?.focus({ preventScroll: true });
         return;
     }
     if (event.target.closest('.atom8-subnetmap-close, .atom8-subnetmap-backdrop')) {
