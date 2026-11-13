@@ -1069,6 +1069,10 @@ body, html {
   background: linear-gradient(110deg, rgba(30, 64, 175, 0.18), rgba(15, 23, 42, 0.88));
 }
 
+.atom8-context-bar.has-subnet-map {
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+}
+
 .atom8-parent-context,
 .atom8-score-context {
   display: flex;
@@ -1121,6 +1125,7 @@ body, html {
 }
 
 .atom8-requirements-open,
+.atom8-subnetmap-open,
 .atom8-mode-tab,
 .atom8-self-run {
   display: inline-flex;
@@ -1135,7 +1140,8 @@ body, html {
   cursor: pointer;
 }
 
-.atom8-requirements-open {
+.atom8-requirements-open,
+.atom8-subnetmap-open {
   min-height: 48px;
   padding: 0 14px;
   color: #dbeafe;
@@ -1144,6 +1150,8 @@ body, html {
 
 .atom8-requirements-open:hover,
 .atom8-requirements-open:focus-visible,
+.atom8-subnetmap-open:hover,
+.atom8-subnetmap-open:focus-visible,
 .atom8-mode-tab:hover:not(:disabled),
 .atom8-mode-tab:focus-visible {
   border-color: #60a5fa;
@@ -9473,5 +9481,423 @@ button:focus-visible, input:focus-visible {
 
   .atom8-mode-workspace .atom8-test-rail {
     height: auto;
+  }
+}
+
+/* ============================================================
+   SUBNET DIAGRAM (Atom 8 / Atom 9) — parent network -> subnet of a
+   subnet -> ... One identical table per subnetting step, joined by
+   curved connectors; LAN / WAN usage is a prominent coloured label.
+   ============================================================ */
+.atom8-subnetmap-modal[hidden] {
+  display: none;
+}
+
+.atom8-subnetmap-modal {
+  position: fixed;
+  z-index: 1250;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+
+.atom8-subnetmap-backdrop {
+  position: absolute;
+  inset: 0;
+  border: 0;
+  background: rgba(2, 6, 23, .82);
+  backdrop-filter: blur(4px);
+  cursor: default;
+}
+
+.atom8-subnetmap-dialog {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(1560px, 100%);
+  height: min(90vh, 940px);
+  padding: 20px 22px 18px;
+  border: 1px solid rgba(96, 165, 250, .42);
+  border-radius: 14px;
+  background: #0d1729;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, .55);
+}
+
+.atom8-subnetmap-dialog > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 12px;
+}
+
+.atom8-subnetmap-dialog > header span {
+  color: #60a5fa;
+  font-size: .65rem;
+  font-weight: 800;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+}
+
+.atom8-subnetmap-dialog h3,
+.atom8-subnetmap-dialog p {
+  margin: 0;
+}
+
+.atom8-subnetmap-dialog h3 {
+  margin-top: 4px;
+  font-size: 1.14rem;
+}
+
+.atom8-subnetmap-dialog p {
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: .75rem;
+}
+
+.atom8-subnetmap-tools {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.atom8-subnetmap-zoom {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--border-color);
+  border-radius: 9px;
+  background: rgba(15, 23, 42, .7);
+}
+
+.atom8-subnetmap-zoom button,
+.atom8-subnetmap-close {
+  display: grid;
+  width: 32px;
+  height: 32px;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.atom8-subnetmap-close {
+  width: 36px;
+  height: 36px;
+  border-color: var(--border-color);
+  background: rgba(15, 23, 42, .7);
+}
+
+.atom8-subnetmap-zoom button:hover,
+.atom8-subnetmap-zoom button:focus-visible,
+.atom8-subnetmap-close:hover,
+.atom8-subnetmap-close:focus-visible {
+  border-color: #60a5fa;
+  color: #fff;
+  outline: none;
+}
+
+.atom8-subnetmap-zoom-label {
+  min-width: 42px;
+  color: #dbeafe;
+  font-family: var(--font-mono);
+  font-size: .72rem;
+  text-align: center;
+}
+
+.atom8-subnetmap-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 22px;
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+  color: var(--text-secondary);
+  font-size: .72rem;
+}
+
+.atom8-subnetmap-legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.atom8-subnetmap-viewport {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  border: 1px solid rgba(71, 85, 105, .55);
+  border-radius: 12px;
+  background:
+    radial-gradient(circle at 1px 1px, rgba(100, 116, 139, .22) 1px, transparent 0) 0 0 / 22px 22px,
+    #0a1222;
+}
+
+.atom8-subnetmap-viewport:focus-visible {
+  outline: 2px solid #60a5fa;
+  outline-offset: -2px;
+}
+
+.atom8-subnetmap-canvas {
+  position: relative;
+  transform-origin: 0 0;
+}
+
+.atom8-subnetmap-links {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.atom8-subnetmap-link {
+  fill: none;
+  stroke: rgba(56, 189, 248, .88);
+  stroke-width: 2.75;
+  stroke-linecap: round;
+}
+
+.atom8-subnetmap-dot {
+  fill: #38bdf8;
+  stroke: #0a1222;
+  stroke-width: 2;
+}
+
+.atom8-subnetmap-link-label {
+  fill: #bae6fd;
+  font: 800 12px var(--font-mono);
+  paint-order: stroke;
+  stroke: #0a1222;
+  stroke-width: 5px;
+  stroke-linejoin: round;
+}
+
+.atom8-subnetmap-card {
+  position: absolute;
+  z-index: 1;
+  box-sizing: border-box;
+  overflow: hidden;
+  border: 1px solid rgba(96, 165, 250, .46);
+  border-radius: 12px;
+  background: #0f1b31;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, .4);
+}
+
+.atom8-subnetmap-card.is-root {
+  border-color: rgba(251, 191, 36, .6);
+}
+
+.atom8-subnetmap-card > header {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 14px;
+  border-bottom: 1px solid rgba(71, 85, 105, .6);
+  background: linear-gradient(110deg, rgba(30, 64, 175, .34), rgba(15, 23, 42, .9));
+}
+
+.atom8-subnetmap-card.is-root > header {
+  background: linear-gradient(110deg, rgba(180, 83, 9, .34), rgba(15, 23, 42, .9));
+}
+
+.atom8-subnetmap-card > header > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.atom8-subnetmap-card > header strong {
+  overflow: hidden;
+  color: #f1f5f9;
+  font-family: var(--font-mono);
+  font-size: .95rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.atom8-subnetmap-card > header small {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font-size: .7rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.atom8-subnetmap-chip {
+  flex: 0 0 auto;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #2563eb;
+  color: #eff6ff;
+  font-size: .7rem;
+  font-weight: 800;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.atom8-subnetmap-card.is-root .atom8-subnetmap-chip {
+  background: #d97706;
+  color: #fffbeb;
+}
+
+.atom8-subnetmap-card table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
+}
+
+.atom8-subnetmap-card th,
+.atom8-subnetmap-card td {
+  box-sizing: border-box;
+  padding: 0 8px;
+  overflow: hidden;
+  border-bottom: 1px solid rgba(51, 65, 85, .7);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.atom8-subnetmap-card th {
+  background: rgba(15, 23, 42, .9);
+  color: #94a3b8;
+  font-size: .62rem;
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.atom8-subnetmap-card td {
+  color: #e2e8f0;
+  font-family: var(--font-mono);
+  font-size: .72rem;
+}
+
+.atom8-subnetmap-card td strong {
+  color: #fbbf24;
+}
+
+.atom8-subnetmap-card td.idx {
+  color: #93c5fd;
+  font-weight: 800;
+  text-align: center;
+}
+
+.atom8-subnetmap-card td.use {
+  padding: 0 6px;
+  font-family: var(--font-sans, inherit);
+}
+
+.atom8-subnetmap-card tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.atom8-subnetmap-card tr.is-lan td {
+  background: rgba(16, 185, 129, .17);
+}
+
+.atom8-subnetmap-card tr.is-wan td {
+  background: rgba(245, 158, 11, .17);
+}
+
+.atom8-subnetmap-card tr.is-split td {
+  background: rgba(56, 189, 248, .1);
+}
+
+.atom8-subnetmap-card tr.is-free td {
+  color: #94a3b8;
+}
+
+.atom8-subnetmap-card tr.is-lan td.idx {
+  box-shadow: inset 5px 0 0 #10b981;
+}
+
+.atom8-subnetmap-card tr.is-wan td.idx {
+  box-shadow: inset 5px 0 0 #f59e0b;
+}
+
+.atom8-subnetmap-card tr.is-split td.idx {
+  box-shadow: inset 5px 0 0 #38bdf8;
+}
+
+.atom8-subnetmap-card tr.is-gap td {
+  color: #64748b;
+  font-style: italic;
+  text-align: center;
+}
+
+.atom8-subnetmap-use {
+  display: inline-flex;
+  box-sizing: border-box;
+  max-width: 100%;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 11px;
+  overflow: hidden;
+  border-radius: 999px;
+  font-family: var(--font-sans, inherit);
+  font-size: .72rem;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.atom8-subnetmap-use b {
+  font-weight: 900;
+  letter-spacing: .02em;
+}
+
+.atom8-subnetmap-use em {
+  overflow: hidden;
+  font-style: normal;
+  font-weight: 600;
+  opacity: .92;
+  text-overflow: ellipsis;
+}
+
+.atom8-subnetmap-use.is-lan {
+  background: #059669;
+  color: #ecfdf5;
+  box-shadow: 0 0 0 1px rgba(110, 231, 183, .55);
+}
+
+.atom8-subnetmap-use.is-wan {
+  background: #d97706;
+  color: #fffbeb;
+  box-shadow: 0 0 0 1px rgba(252, 211, 77, .6);
+}
+
+.atom8-subnetmap-use.is-split {
+  background: rgba(56, 189, 248, .18);
+  color: #bae6fd;
+  box-shadow: 0 0 0 1px rgba(56, 189, 248, .55);
+}
+
+.atom8-subnetmap-use.is-free {
+  color: #64748b;
+  box-shadow: 0 0 0 1px rgba(100, 116, 139, .5);
+  font-weight: 600;
+}
+
+@media (max-width: 820px) {
+  .atom8-subnetmap-modal {
+    padding: 8px;
+  }
+
+  .atom8-subnetmap-dialog {
+    height: 94vh;
+    padding: 14px;
+  }
+
+  .atom8-subnetmap-dialog > header {
+    flex-direction: column;
   }
 }

@@ -324,9 +324,18 @@ const QUESTION_CONFIG = {
         dceClockRate: 64000,
         routing: 'static',
         answerKey: {
-            // Temporary instructor/demo utility. Set to false to remove the
-            // button without changing the Atom 8 renderer or validation.
-            showPopulateButton: false
+            // Temporary instructor/demo utility for ATOM 8 ONLY. Atom 9 has
+            // its own independent setting (QUESTION_CONFIG.atom9.answerKey).
+            // Set to false to remove the button without changing the
+            // renderer or validation.
+            showPopulateButton: true
+        },
+        // Read-only subnet diagram (parent network -> subnet of subnet ->
+        // ...). It reveals the VLSM plan, so it is OFF for Atom 8 and, when
+        // enabled, hidden in Exam mode unless showInExam is true.
+        subnetDiagram: {
+            enabled: false,
+            showInExam: false
         },
         topologyView: {
             defaultZoom: 1,
@@ -389,6 +398,14 @@ const QUESTION_CONFIG = {
         enabled: true,
         seed: {
             salt: 'standalone-deployment-v1'
+        },
+        // Per-atom switches. Atom 9 no longer inherits atom8.answerKey.
+        answerKey: {
+            showPopulateButton: true
+        },
+        subnetDiagram: {
+            enabled: true,
+            showInExam: false
         },
         minLans: 2,
         maxLans: 6,
@@ -812,6 +829,7 @@ document.addEventListener('keydown', (e) => {
         if (atom8Modal && atom8Modal.style.display === 'block') {
             closeAtom8Modal();
         }
+        document.querySelectorAll('.atom8-subnetmap-modal:not([hidden])').forEach(modal => { modal.hidden = true; });
     }
 });
 
@@ -6743,6 +6761,23 @@ function atom8CurrentContainerSelector() {
     return activeDeploymentExerciseKey.startsWith('atom9-') ? '#atom9Container' : '#atom8Container';
 }
 
+// Per-atom feature flags for the shared Atom 8 / Atom 9 workspace. Each atom
+// reads ONLY its own config block, so enabling a utility for one atom never
+// leaks into the other.
+function atom8ConfigKey(ex) {
+    return ex && ex.type === 'atom9' ? 'atom9' : 'atom8';
+}
+
+function atom8AnswerKeyEnabled(ex = atom8CurrentExercise()) {
+    return !!QUESTION_CONFIG[atom8ConfigKey(ex)]?.answerKey?.showPopulateButton;
+}
+
+function atom8SubnetDiagramEnabled(ex = atom8CurrentExercise()) {
+    const cfg = QUESTION_CONFIG[atom8ConfigKey(ex)]?.subnetDiagram;
+    if (!cfg?.enabled || !ex?.scenario?.solution) return false;
+    return appSettings.mode !== 'exam' || cfg.showInExam === true;
+}
+
 function atom8OfficialCases(ex = atom8CurrentExercise()) {
     const suite = QUESTION_CONFIG.atom8.connectivityTest?.officialTestCases;
     if (!suite?.enabled) return [];
@@ -7849,7 +7884,7 @@ function atom8BuildPanel(ex) {
     const atom9Position = isAtom9 ? Math.max(0, atom9QuestionIds.indexOf(activeDeploymentExerciseKey)) : -1;
     const panelIndex = isAtom9 ? 'I' + (atom9Position + 1) : 'A8';
     const panelTitle = isAtom9 ? ex.label : 'Apply Your VLSM Design';
-    const answerKeyButton = QUESTION_CONFIG.atom8.answerKey?.showPopulateButton ?
+    const answerKeyButton = atom8AnswerKeyEnabled(ex) ?
         '<button type="button" class="atom8-populate-key" title="Replace the current item configuration with its generated answer key"><i class="fa-solid fa-wand-magic-sparkles" aria-hidden="true"></i><span>Populate Answer Key</span></button>' : '';
     const resetItemButton = isAtom9 ?
         '<button type="button" class="atom9-reset-item" title="Clear all saved configuration and test results for this item"' + (isRetryAllowed() ? '' : ' disabled') + '><i class="fa-solid fa-rotate-left" aria-hidden="true"></i><span>Reset Item</span></button>' : '';
@@ -7857,18 +7892,249 @@ function atom8BuildPanel(ex) {
     const busy = atom8PingState.running || atom8OfficialRunAllActive || atom8SelfRunAllActive || Object.values(ex.atom8State.officialTests?.results || {}).some(result => result.status === 'running');
     const modeButton = (mode, icon, label) => '<button type="button" class="atom8-mode-tab' + (atom8WorkspaceMode === mode ? ' active' : '') + '" data-mode="' + mode + '" aria-pressed="' + (atom8WorkspaceMode === mode) + '"' + (busy ? ' disabled' : '') + '><i class="fa-solid ' + icon + '" aria-hidden="true"></i><span>' + label + '</span></button>';
     const requirements = atom8BuildRequirementsModal(ex);
+    const subnetMapEnabled = atom8SubnetDiagramEnabled(ex);
+    const subnetMapButton = subnetMapEnabled ? '<button type="button" class="atom8-subnetmap-open"><i class="fa-solid fa-diagram-project" aria-hidden="true"></i><span>Subnet Diagram</span></button>' : '';
+    const subnetMapModal = subnetMapEnabled ? atom8BuildSubnetMapModal(ex) : '';
     const rail = atom8WorkspaceMode === 'official' ? atom8BuildOfficialTests(ex) : atom8WorkspaceMode === 'self-test' ? atom8BuildConnectivityTest(ex) : '';
     const resetConfirmation = isAtom9 ? '<div class="atom9-reset-confirm-modal" hidden><button type="button" class="atom9-reset-cancel atom9-reset-backdrop" aria-label="Cancel item reset"></button><section class="atom9-reset-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="atom9ResetTitle"><div class="atom9-reset-confirm-icon"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i></div><div><span>Reset current item</span><h3 id="atom9ResetTitle">Clear all configuration for ' + atom6Escape(panelTitle) + '?</h3><p>The seeded network and requirements will stay the same. Device settings, self-test pairs, official results, and this item’s score will be cleared.</p></div><footer><button type="button" class="secondary-btn atom9-reset-cancel">Cancel</button><button type="button" class="atom9-reset-confirm"><i class="fa-solid fa-rotate-left" aria-hidden="true"></i> Reset Item</button></footer></section></div>' : '';
     return '<section class="panel atom8-panel"><div class="panel-head"><span class="panel-index">' + panelIndex + '</span><div><h2>' + atom6Escape(panelTitle) + '</h2><p>Validation dots provide configuration feedback. Only official test cases determine the score.</p></div>' + panelActions + '<span class="badge atom1-score-badge" id="atom8ScoreBadge">' + score + '</span></div>' +
-        '<div class="atom8-context-bar"><div class="atom8-parent-context"><span><small>Primary allocation source</small>Parent Network</span><strong>' + scenario.parent.network + '/' + scenario.parent.cidr + '</strong></div><button type="button" class="atom8-requirements-open"><i class="fa-solid fa-list-check" aria-hidden="true"></i><span>View Requirements</span></button><div class="atom8-score-context"><small>Score</small><strong>' + score + '</strong></div></div>' +
+        '<div class="atom8-context-bar' + (subnetMapEnabled ? ' has-subnet-map' : '') + '"><div class="atom8-parent-context"><span><small>Primary allocation source</small>Parent Network</span><strong>' + scenario.parent.network + '/' + scenario.parent.cidr + '</strong></div><button type="button" class="atom8-requirements-open"><i class="fa-solid fa-list-check" aria-hidden="true"></i><span>View Requirements</span></button>' + subnetMapButton + '<div class="atom8-score-context"><small>Score</small><strong>' + score + '</strong></div></div>' +
         '<nav class="atom8-mode-tabs" aria-label="Deployment workflow modes">' + modeButton('configure', 'fa-sliders', 'Configure') + modeButton('self-test', 'fa-flask', 'Self-Test') + modeButton('official', 'fa-clipboard-check', 'Official Test') + '</nav>' +
-        '<div class="atom8-mode-workspace ' + atom8WorkspaceMode + '"><div class="atom8-topology-stage">' + atom8BuildTopology(ex) + '</div>' + rail + '</div>' + requirements + resetConfirmation + '</section>';
+        '<div class="atom8-mode-workspace ' + atom8WorkspaceMode + '"><div class="atom8-topology-stage">' + atom8BuildTopology(ex) + '</div>' + rail + '</div>' + requirements + subnetMapModal + resetConfirmation + '</section>';
 }
 
 function atom8BuildRequirementsModal(ex) {
     const lanCards = ex.scenario.lans.map(lan => '<article class="atom6-requirement-card atom6-lan-card"><div class="atom6-requirement-type">LAN ' + lan.number + '</div><div class="atom6-requirement-name">' + atom6Escape(lan.label) + '</div><strong>' + lan.hosts + ' hosts</strong></article>');
     const wanCards = ex.scenario.wans.map(wan => '<article class="atom6-requirement-card atom6-wan-card"><div class="atom6-requirement-type">WAN ' + wan.number + '</div><div class="atom6-requirement-name">Point-to-Point</div><strong>' + wan.requiredIp + ' usable IP' + (wan.requiredIp === 1 ? '' : 's') + '</strong></article>');
     return '<div class="atom8-requirements-modal" hidden><button type="button" class="atom8-requirements-backdrop" aria-label="Close requirements"></button><section class="atom8-requirements-dialog" role="dialog" aria-modal="true" aria-labelledby="atom8RequirementsTitle"><header><div><span>Seeded Scenario</span><h3 id="atom8RequirementsTitle">LAN and WAN Requirements</h3><p>Use this clean list while planning your VLSM allocation.</p></div><button type="button" class="atom8-requirements-close" aria-label="Close requirements"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></header><div class="atom6-parent-network"><span><small>Primary allocation source</small>Parent Network</span><strong>' + ex.scenario.parent.network + '/' + ex.scenario.parent.cidr + '</strong></div><div class="atom6-requirement-grid">' + lanCards.concat(wanCards).join('') + '</div></section></div>';
+}
+
+// =====================================================================
+// SUBNET DIAGRAM (Atom 9; available to Atom 8 through its own flag)
+// Shows how the parent network was carved up: Parent Network -> subnets
+// -> subnets of a subnet -> ... Every step is one table with the SAME
+// structure (index, network, first, last, broadcast, mask/CIDR). A curved
+// line connects the row that was subdivided to the table created from it,
+// and each row that ends up serving a LAN or WAN carries a prominent label.
+// The geometry is computed, not measured, so it renders correctly even when
+// the modal is hidden or zoomed.
+// =====================================================================
+const ATOM8_SUBNET_MAP = {
+    columns: [52, 116, 116, 116, 116, 162, 190],
+    tableWidth: 868,
+    columnGap: 124,
+    tableGap: 34,
+    pad: 28,
+    headerHeight: 66,
+    columnHeadHeight: 30,
+    rowHeight: 36,
+    collapseMinRows: 10,
+    collapseRunLength: 4,
+    minZoom: 0.4,
+    maxZoom: 1.4,
+    zoomStep: 0.1
+};
+
+function atom8BuildSubnetMapModel(scenario) {
+    const cfg = ATOM8_SUBNET_MAP;
+    const solution = scenario.solution;
+    const parentBlock = atom6Block(scenario.parent.networkInt, scenario.parent.cidr);
+    const tables = [{
+        id: 't0', depth: 0, kind: 'root', step: 0, chip: 'Start', title: 'Parent Network',
+        subtitle: parentBlock.availableIp + ' addresses · ' + parentBlock.mask.join('.'),
+        rows: [{ index: 0, block: parentBlock, use: null, childId: null }],
+        parentRow: null, parentTable: null
+    }];
+
+    // A source block is always an exact, still-unassigned row of an earlier
+    // table (or the parent itself), because allocation draws from the pool of
+    // blocks that earlier splits left behind.
+    const findFreeRow = block => {
+        for (const table of tables) {
+            for (const row of table.rows) {
+                if (!row.use && !row.childId && row.block.networkInt === block.networkInt && row.block.cidr === block.cidr) {
+                    return { table, row };
+                }
+            }
+        }
+        return null;
+    };
+
+    let step = 0;
+    const addStep = (source, blocks, uses, purpose) => {
+        step += 1;
+        const holder = findFreeRow(source);
+        if (!holder || !blocks.length) return;
+        const first = blocks[0];
+        // The pool block already has the required size: nothing to subdivide,
+        // so the existing row is simply labelled with its LAN/WAN.
+        if (blocks.length === 1 && first.networkInt === source.networkInt && first.cidr === source.cidr) {
+            holder.row.use = uses[0] || null;
+            return;
+        }
+        const table = {
+            id: 't' + tables.length, depth: holder.table.depth + 1, kind: 'split', step,
+            chip: 'Step ' + step,
+            title: source.network + '/' + source.cidr + ' → /' + first.cidr,
+            subtitle: purpose,
+            rows: blocks.map((block, i) => ({ index: i, block, use: uses[i] || null, childId: null })),
+            parentRow: holder.row, parentTable: holder.table
+        };
+        holder.row.childId = table.id;
+        tables.push(table);
+    };
+
+    const lanById = Object.fromEntries(scenario.lans.map(lan => [lan.id, lan]));
+    (solution.lanAllocations || []).forEach(allocation => {
+        const lan = lanById[allocation.lanId];
+        if (!lan) return;
+        const use = { kind: 'lan', label: 'LAN ' + lan.number, name: lan.label, detail: lan.hosts + ' hosts required' };
+        addStep(allocation.source, allocation.generated, [use],
+            'Carved for LAN ' + lan.number + ' · ' + lan.label + ' (' + lan.hosts + ' hosts → /' + allocation.assigned.cidr + ')');
+    });
+    if (solution.wan && solution.wan.source) {
+        const wanById = Object.fromEntries(scenario.wans.map(wan => [wan.id, wan]));
+        const uses = solution.wan.assignments.map(assignment => {
+            const wan = wanById[assignment.wanId];
+            return { kind: 'wan', label: 'WAN ' + (wan ? wan.number : '?'), name: 'Point-to-point', detail: (wan ? wan.requiredIp : 2) + ' usable IPs required' };
+        });
+        addStep(solution.wan.source, solution.wan.generated, uses,
+            'Carved for ' + uses.length + ' WAN link' + (uses.length === 1 ? '' : 's') + ' (/' + (solution.wan.generated[0] ? solution.wan.generated[0].cidr : 30) + ' each)');
+    }
+
+    // Collapse long runs of untouched, unused subnets so a big split (for
+    // example a /24 into /28s) stays readable. Used and subdivided rows are
+    // never collapsed, so every connector start stays visible.
+    tables.forEach(table => {
+        const visible = [];
+        let run = [];
+        const flush = () => {
+            if (table.rows.length > cfg.collapseMinRows && run.length >= cfg.collapseRunLength) {
+                visible.push({ gap: true, count: run.length, from: run[0].index, to: run[run.length - 1].index });
+            } else {
+                run.forEach(row => visible.push(row));
+            }
+            run = [];
+        };
+        table.rows.forEach(row => {
+            if (!row.use && !row.childId) run.push(row);
+            else { flush(); visible.push(row); }
+        });
+        flush();
+        table.visible = visible;
+        table.height = 2 + cfg.headerHeight + cfg.columnHeadHeight + visible.length * cfg.rowHeight;
+    });
+
+    // Column per depth; tables of one depth stack top to bottom. A child is
+    // placed level with the row it was split from whenever space allows.
+    const nextFree = {};
+    tables.forEach(table => {
+        table.x = cfg.pad + table.depth * (cfg.tableWidth + cfg.columnGap);
+        const desired = table.parentRow ? table.parentRow.cy - cfg.headerHeight / 2 - 1 : cfg.pad;
+        table.y = Math.max(desired, nextFree[table.depth] ?? cfg.pad);
+        nextFree[table.depth] = table.y + table.height + cfg.tableGap;
+        table.visible.forEach((row, i) => {
+            if (!row.gap) row.cy = table.y + 1 + cfg.headerHeight + cfg.columnHeadHeight + i * cfg.rowHeight + cfg.rowHeight / 2;
+        });
+    });
+
+    const maxDepth = Math.max(...tables.map(table => table.depth));
+    const width = cfg.pad * 2 + (maxDepth + 1) * cfg.tableWidth + maxDepth * cfg.columnGap;
+    const height = Math.max(...Object.values(nextFree)) - cfg.tableGap + cfg.pad;
+    return { tables, width, height };
+}
+
+function atom8SubnetMapUseHtml(row, tableById) {
+    if (row.use) {
+        const icon = row.use.kind === 'lan' ? 'fa-network-wired' : 'fa-link';
+        return '<span class="atom8-subnetmap-use is-' + row.use.kind + '" title="' + atom6Escape(row.use.label + ' · ' + row.use.name + ' · ' + row.use.detail) + '">' +
+            '<i class="fa-solid ' + icon + '" aria-hidden="true"></i><b>' + atom6Escape(row.use.label) + '</b><em>' + atom6Escape(row.use.name) + '</em></span>';
+    }
+    if (row.childId) {
+        const child = tableById[row.childId];
+        return '<span class="atom8-subnetmap-use is-split"><i class="fa-solid fa-code-branch" aria-hidden="true"></i><b>Subdivided</b><em>→ ' + atom6Escape(child ? child.chip : '') + '</em></span>';
+    }
+    return '<span class="atom8-subnetmap-use is-free">Available</span>';
+}
+
+function atom8BuildSubnetMap(ex) {
+    const cfg = ATOM8_SUBNET_MAP;
+    const model = atom8BuildSubnetMapModel(ex.scenario);
+    const tableById = Object.fromEntries(model.tables.map(table => [table.id, table]));
+
+    const links = model.tables.filter(table => table.parentRow).map(table => {
+        const from = table.parentTable;
+        const x1 = from.x + cfg.tableWidth;
+        const y1 = table.parentRow.cy;
+        const x2 = table.x;
+        const y2 = table.y + 1 + cfg.headerHeight / 2;
+        const dx = Math.max(48, (x2 - x1) * 0.55);
+        const label = '/' + table.parentRow.block.cidr + ' → /' + table.rows[0].block.cidr;
+        return '<path class="atom8-subnetmap-link" d="M ' + x1 + ' ' + y1 + ' C ' + (x1 + dx) + ' ' + y1 + ', ' + (x2 - dx) + ' ' + y2 + ', ' + x2 + ' ' + y2 + '"></path>' +
+            '<circle class="atom8-subnetmap-dot" cx="' + x1 + '" cy="' + y1 + '" r="5"></circle>' +
+            '<circle class="atom8-subnetmap-dot" cx="' + x2 + '" cy="' + y2 + '" r="5"></circle>' +
+            '<text class="atom8-subnetmap-link-label" x="' + ((x1 + x2) / 2) + '" y="' + (((y1 + y2) / 2) - 9) + '" text-anchor="middle">' + label + '</text>';
+    }).join('');
+
+    const colgroup = '<colgroup>' + cfg.columns.map(width => '<col style="width:' + width + 'px">').join('') + '</colgroup>';
+    const head = '<thead><tr style="height:' + cfg.columnHeadHeight + 'px"><th>Index</th><th>Network Address</th><th>First Usable</th><th>Last Usable</th><th>Broadcast</th><th>Subnet Mask / CIDR</th><th>Used For</th></tr></thead>';
+
+    const cards = model.tables.map(table => {
+        const rows = table.visible.map(row => {
+            if (row.gap) {
+                return '<tr class="is-gap" style="height:' + cfg.rowHeight + 'px"><td colspan="7">⋯ ' + row.count + ' more available subnets · index ' + row.from + '–' + row.to + '</td></tr>';
+            }
+            const block = row.block;
+            const state = row.use ? 'is-' + row.use.kind : row.childId ? 'is-split' : 'is-free';
+            return '<tr class="' + state + '" style="height:' + cfg.rowHeight + 'px"><td class="idx">' + row.index + '</td><td>' + block.network + '</td><td>' + block.first + '</td><td>' + block.last + '</td><td>' + block.broadcast + '</td>' +
+                '<td>' + block.mask.join('.') + ' <strong>/' + block.cidr + '</strong></td><td class="use">' + atom8SubnetMapUseHtml(row, tableById) + '</td></tr>';
+        }).join('');
+        return '<section class="atom8-subnetmap-card is-' + table.kind + '" style="left:' + table.x + 'px;top:' + table.y + 'px;width:' + cfg.tableWidth + 'px;height:' + table.height + 'px" aria-label="' + atom6Escape(table.chip + ': ' + table.title) + '">' +
+            '<header style="height:' + cfg.headerHeight + 'px"><span class="atom8-subnetmap-chip">' + atom6Escape(table.chip) + '</span><div><strong>' + atom6Escape(table.title) + '</strong><small>' + atom6Escape(table.subtitle) + '</small></div></header>' +
+            '<table>' + colgroup + head + '<tbody>' + rows + '</tbody></table></section>';
+    }).join('');
+
+    return '<div class="atom8-subnetmap-plane" data-base-width="' + model.width + '" data-base-height="' + model.height + '" data-zoom="1" style="width:' + model.width + 'px;height:' + model.height + 'px">' +
+        '<div class="atom8-subnetmap-canvas" style="width:' + model.width + 'px;height:' + model.height + 'px">' +
+        '<svg class="atom8-subnetmap-links" width="' + model.width + '" height="' + model.height + '" viewBox="0 0 ' + model.width + ' ' + model.height + '" aria-hidden="true">' + links + '</svg>' + cards + '</div></div>';
+}
+
+function atom8BuildSubnetMapModal(ex) {
+    return '<div class="atom8-subnetmap-modal" hidden><button type="button" class="atom8-subnetmap-backdrop" aria-label="Close subnet diagram"></button>' +
+        '<section class="atom8-subnetmap-dialog" role="dialog" aria-modal="true" aria-labelledby="atom8SubnetMapTitle">' +
+        '<header><div><span>VLSM Allocation Map</span><h3 id="atom8SubnetMapTitle">Subnet Diagram · ' + ex.scenario.parent.network + '/' + ex.scenario.parent.cidr + '</h3>' +
+        '<p>Each table is one subnetting step. A curved line leads from the subnet that was divided to the table of subnets created from it.</p></div>' +
+        '<div class="atom8-subnetmap-tools"><div class="atom8-subnetmap-zoom" aria-label="Diagram zoom controls">' +
+        '<button type="button" class="atom8-subnetmap-zoom-out" aria-label="Zoom out"><i class="fa-solid fa-minus" aria-hidden="true"></i></button>' +
+        '<span class="atom8-subnetmap-zoom-label">100%</span>' +
+        '<button type="button" class="atom8-subnetmap-zoom-in" aria-label="Zoom in"><i class="fa-solid fa-plus" aria-hidden="true"></i></button>' +
+        '<button type="button" class="atom8-subnetmap-zoom-fit" aria-label="Fit diagram to window" title="Fit to window"><i class="fa-solid fa-maximize" aria-hidden="true"></i></button></div>' +
+        '<button type="button" class="atom8-subnetmap-close" aria-label="Close subnet diagram"><i class="fa-solid fa-xmark" aria-hidden="true"></i></button></div></header>' +
+        '<ul class="atom8-subnetmap-legend" aria-label="Legend"><li><span class="atom8-subnetmap-use is-lan"><b>LAN</b></span> serves a LAN</li><li><span class="atom8-subnetmap-use is-wan"><b>WAN</b></span> serves a WAN link</li>' +
+        '<li><span class="atom8-subnetmap-use is-split"><b>Subdivided</b></span> split again into smaller subnets</li><li><span class="atom8-subnetmap-use is-free">Available</span> left in the pool</li></ul>' +
+        '<div class="atom8-subnetmap-viewport" tabindex="0" aria-label="Subnet diagram. Scroll to pan."></div></section></div>';
+}
+
+function atom8ApplySubnetMapZoom(modal, zoom) {
+    const plane = modal?.querySelector('.atom8-subnetmap-plane');
+    const canvas = modal?.querySelector('.atom8-subnetmap-canvas');
+    if (!plane || !canvas) return;
+    const cfg = ATOM8_SUBNET_MAP;
+    const z = Math.round(Math.min(cfg.maxZoom, Math.max(cfg.minZoom, zoom)) * 100) / 100;
+    plane.style.width = Math.ceil(Number(plane.dataset.baseWidth) * z) + 'px';
+    plane.style.height = Math.ceil(Number(plane.dataset.baseHeight) * z) + 'px';
+    canvas.style.transform = 'scale(' + z + ')';
+    plane.dataset.zoom = String(z);
+    const label = modal.querySelector('.atom8-subnetmap-zoom-label');
+    if (label) label.textContent = Math.round(z * 100) + '%';
+}
+
+function atom8FitSubnetMap(modal) {
+    const viewport = modal?.querySelector('.atom8-subnetmap-viewport');
+    const plane = modal?.querySelector('.atom8-subnetmap-plane');
+    if (!viewport || !plane) return;
+    const available = Math.max(200, viewport.clientWidth - 24);
+    atom8ApplySubnetMapZoom(modal, Math.min(1, available / Number(plane.dataset.baseWidth)));
 }
 
 function atom8SetWorkspaceMode(mode) {
@@ -8228,7 +8494,7 @@ function closeAtom8Modal() {
 
 function atom8PopulateAnswerKey() {
     const ex = atom8CurrentExercise();
-    if (!ex || !QUESTION_CONFIG.atom8.answerKey?.showPopulateButton) return;
+    if (!ex || !atom8AnswerKeyEnabled(ex)) return;
     atom8CancelPingAnimation();
     atom8PingState.active = false;
     atom8PingState.sourceId = null;
@@ -8384,6 +8650,37 @@ function atom8HandleDeviceClick(event) {
     const modeTab = event.target.closest('.atom8-mode-tab');
     if (modeTab) {
         atom8SetWorkspaceMode(modeTab.dataset.mode);
+        return;
+    }
+    if (event.target.closest('.atom8-subnetmap-open')) {
+        const ex = atom8CurrentExercise();
+        const modal = document.querySelector(atom8CurrentContainerSelector() + ' .atom8-subnetmap-modal');
+        const viewport = modal?.querySelector('.atom8-subnetmap-viewport');
+        if (!ex || !viewport || !atom8SubnetDiagramEnabled(ex)) return;
+        viewport.innerHTML = atom8BuildSubnetMap(ex);
+        modal.hidden = false;
+        atom8FitSubnetMap(modal);
+        viewport.scrollLeft = 0;
+        viewport.scrollTop = 0;
+        modal.querySelector('.atom8-subnetmap-close')?.focus();
+        return;
+    }
+    if (event.target.closest('.atom8-subnetmap-close, .atom8-subnetmap-backdrop')) {
+        const modal = event.target.closest('.atom8-subnetmap-modal');
+        if (modal) modal.hidden = true;
+        return;
+    }
+    const subnetMapZoomButton = event.target.closest('.atom8-subnetmap-zoom-in, .atom8-subnetmap-zoom-out, .atom8-subnetmap-zoom-fit');
+    if (subnetMapZoomButton) {
+        const modal = subnetMapZoomButton.closest('.atom8-subnetmap-modal');
+        const plane = modal?.querySelector('.atom8-subnetmap-plane');
+        if (!plane) return;
+        if (subnetMapZoomButton.classList.contains('atom8-subnetmap-zoom-fit')) {
+            atom8FitSubnetMap(modal);
+        } else {
+            const step = ATOM8_SUBNET_MAP.zoomStep * (subnetMapZoomButton.classList.contains('atom8-subnetmap-zoom-in') ? 1 : -1);
+            atom8ApplySubnetMapZoom(modal, (Number(plane.dataset.zoom) || 1) + step);
+        }
         return;
     }
     if (event.target.closest('.atom8-requirements-open')) {
